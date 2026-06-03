@@ -31,4 +31,17 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'octopus' => [
+        'api_url' => in_array(env('APP_ENV'), ['production', 'staging'])
+            ? env('ODB_API_URL_PROD')
+            : env('ODB_API_URL_LOCAL'),
+    ],
+
+    'tableau' => [
+        'base_url'    => env('TABLEAU_BASE_URL'),
+        'api_version' => env('TABLEAU_API_VERSION'),
+        'site_id'     => env('TABLEAU_SITE_ID'),
+        'view_url'    => env('TABLEAU_VIEW_URL'),
+    ],
+
 ];
