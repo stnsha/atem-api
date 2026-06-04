@@ -17,11 +17,10 @@ return new class extends Migration
             // Card identity
             $table->string('title');
             $table->longText('description')->nullable();
-            $table->string('google_link')->nullable();
+            // Names are resolved on the odb frontend via these ids (the odb
+            // staff / staff_department tables); no name snapshot is stored here.
             $table->unsignedBigInteger('issuer_staff_id')->nullable();
-            $table->string('issuer_name')->nullable();
             $table->unsignedBigInteger('department_id')->nullable();
-            $table->string('department_name')->nullable();
 
             // Classification and incentive configuration
             $table->foreignId('level_structure_id')->nullable()->constrained('level_structures');
@@ -50,8 +49,8 @@ return new class extends Migration
             $table->double('total_incentive_amount', 10, 2)->default(0);
             $table->boolean('claimable')->default(false);
 
-            // Workflow state: draft until the issuer submits the card
-            $table->string('record_state')->default('draft');
+            // Lifecycle is tracked via atem_status_id (Draft / On Hold / In
+            // Progress / Completed / ...). No separate record_state column.
 
             // Audit
             $table->unsignedBigInteger('created_by')->nullable();

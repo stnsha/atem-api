@@ -10,6 +10,24 @@ class AtemStatusSeeder extends Seeder
 {
     protected $data = [
         [
+            'value' => 'Draft',
+            'description' => 'ATEM saved as a draft; not yet submitted.',
+            'system_action' => 'Card is editable and not counted as active work.',
+            'incentive_treatment' => 'Not claimable yet.',
+        ],
+        [
+            'value' => 'On Hold',
+            'description' => 'ATEM temporarily paused.',
+            'system_action' => 'Card remains open but is not actively progressing.',
+            'incentive_treatment' => 'Not claimable yet.',
+        ],
+        [
+            'value' => 'Pending',
+            'description' => 'ATEM submitted and awaiting action; the default state for a newly created card.',
+            'system_action' => 'Card is active and open.',
+            'incentive_treatment' => 'Not claimable yet.',
+        ],
+        [
             'value' => 'Completed',
             'description' => 'ATEM deliverable completed and accepted by issuer.',
             'system_action' => 'Close card and lock closure status.',
@@ -20,6 +38,12 @@ class AtemStatusSeeder extends Seeder
             'description' => 'ATEM completed with better-than-expected output or high management value.',
             'system_action' => 'Close card; tag as excellence for CEO / PPM reporting.',
             'incentive_treatment' => 'Eligible if Level 2-4 and ARCI rule applies.',
+        ],
+        [
+            'value' => 'In Progress',
+            'description' => 'ATEM is actively being worked on by the assigned team.',
+            'system_action' => 'Card remains open and editable.',
+            'incentive_treatment' => 'Not claimable yet.',
         ],
         [
             'value' => 'Extended',

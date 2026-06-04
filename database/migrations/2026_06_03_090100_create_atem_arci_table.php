@@ -15,12 +15,10 @@ return new class extends Migration
             $table->id();
             $table->foreignId('atem_id')->constrained('atems')->cascadeOnDelete();
 
-            // Staff identity is sourced from the odb database; stored as a plain
-            // reference plus a name/department snapshot for display.
+            // Staff identity is sourced from the odb database. Only the foreign
+            // ids are stored; names are resolved on the odb frontend by id.
             $table->unsignedBigInteger('staff_id');
-            $table->string('staff_name')->nullable();
             $table->unsignedBigInteger('department_id')->nullable();
-            $table->string('department_name')->nullable();
 
             $table->enum('role', ['A', 'R', 'C', 'I']);
             $table->unsignedBigInteger('assigned_by')->nullable();

@@ -21,12 +21,10 @@ class AtemArciController extends Controller
         $atem = Atem::findOrFail($id);
 
         $data = $request->validate([
-            'staff_id'        => 'required|integer',
-            'staff_name'      => 'nullable|string|max:255',
-            'department_id'   => 'nullable|integer',
-            'department_name' => 'nullable|string|max:255',
-            'role'            => 'required|in:A,R,C,I',
-            'assigned_by'     => 'nullable|integer',
+            'staff_id'      => 'required|integer',
+            'department_id' => 'nullable|integer',
+            'role'          => 'required|in:A,R,C,I',
+            'assigned_by'   => 'nullable|integer',
         ]);
 
         if ($data['role'] === 'A') {
@@ -50,13 +48,11 @@ class AtemArciController extends Controller
         }
 
         AtemArci::create([
-            'atem_id'         => $atem->id,
-            'staff_id'        => $data['staff_id'],
-            'staff_name'      => $data['staff_name'] ?? null,
-            'department_id'   => $data['department_id'] ?? null,
-            'department_name' => $data['department_name'] ?? null,
-            'role'            => $data['role'],
-            'assigned_by'     => $data['assigned_by'] ?? null,
+            'atem_id'       => $atem->id,
+            'staff_id'      => $data['staff_id'],
+            'department_id' => $data['department_id'] ?? null,
+            'role'          => $data['role'],
+            'assigned_by'   => $data['assigned_by'] ?? null,
         ]);
 
         return response()->json([
@@ -120,7 +116,7 @@ class AtemArciController extends Controller
      */
     private function grouped(int $atemId): array
     {
-        $members = AtemArci::where('atem_id', $atemId)->orderBy('staff_name')->get();
+        $members = AtemArci::where('atem_id', $atemId)->orderBy('id')->get();
 
         $grouped = ['A' => [], 'R' => [], 'C' => [], 'I' => []];
         foreach ($members as $member) {

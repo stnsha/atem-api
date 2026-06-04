@@ -15,11 +15,8 @@ class Atem extends Model
     protected $fillable = [
         'title',
         'description',
-        'google_link',
         'issuer_staff_id',
-        'issuer_name',
         'department_id',
-        'department_name',
         'level_structure_id',
         'incentive_rule_id',
         'base_incentive',
@@ -39,7 +36,6 @@ class Atem extends Model
         'r_incentive_amount',
         'total_incentive_amount',
         'claimable',
-        'record_state',
         'created_by',
         'updated_by',
         'closed_by',
@@ -53,17 +49,27 @@ class Atem extends Model
         'is_extended'            => 'boolean',
         'claimable'              => 'boolean',
         'extension_count'        => 'integer',
-        'start_date'             => 'date',
-        'end_date'               => 'date',
-        'extended_date_1'        => 'date',
-        'extended_date_2'        => 'date',
-        'final_due_date'         => 'date',
-        'closure_date'           => 'date',
+        'start_date'             => 'date:Y-m-d',
+        'end_date'               => 'date:Y-m-d',
+        'extended_date_1'        => 'date:Y-m-d',
+        'extended_date_2'        => 'date:Y-m-d',
+        'final_due_date'         => 'date:Y-m-d',
+        'closure_date'           => 'date:Y-m-d',
     ];
 
     public function arci(): HasMany
     {
         return $this->hasMany(AtemArci::class);
+    }
+
+    public function referenceLinks(): HasMany
+    {
+        return $this->hasMany(AtemReferenceLink::class);
+    }
+
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(AtemAttachment::class);
     }
 
     public function levelStructure(): BelongsTo

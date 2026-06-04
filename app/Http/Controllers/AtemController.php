@@ -9,6 +9,7 @@ use App\Models\LevelStructure;
 use App\Services\IncentiveCalculatorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AtemController extends Controller
 {
@@ -35,33 +36,150 @@ class AtemController extends Controller
         ]);
     }
 
+    private const ALLOWED_ATTACHMENT_EXT = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt'];
+
     /**
      * POST /api/atem
-     * Creates a draft card so ARCI members can be attached before final save.
+     * Persists a whole ATEM card (fields + ARCI + reference links + attachments)
+     * in one transaction. Nothing is written until the issuer saves on the
+     * frontend. mode=final -> record_state 'created'; mode=draft -> 'draft'.
+     * Attachments arrive as base64 and are stored in the same call so a save
+     * never misses the files staged in the browser.
      */
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'issuer_staff_id' => 'nullable|integer',
-            'issuer_name'     => 'nullable|string|max:255',
-            'department_id'   => 'nullable|integer',
-            'department_name' => 'nullable|string|max:255',
-            'title'           => 'nullable|string|max:255',
+            'title'                  => 'nullable|string|max:255',
+            'description'            => 'nullable|string',
+            'issuer_staff_id'        => 'nullable|integer',
+            'department_id'          => 'nullable|integer',
+            'level_structure_id'     => 'nullable|integer|exists:level_structures,id',
+            'incentive_rule_id'      => 'nullable|integer|exists:incentive_rules,id',
+            'start_date'             => 'nullable|date',
+            'end_date'               => 'nullable|date',
+            'created_by'             => 'nullable|integer',
+            'mode'                   => 'nullable|in:draft,final',
+            'arci'                   => 'nullable|array',
+            'arci.*.staff_id'        => 'required_with:arci|integer',
+            'arci.*.department_id'   => 'nullable|integer',
+            'arci.*.role'            => 'required_with:arci|in:A,R,C,I',
+            'reference_links'        => 'nullable|array',
+            'reference_links.*.name' => 'required_with:reference_links|string|max:255',
+            'reference_links.*.url'  => 'required_with:reference_links|url|max:1000',
+            'attachments'            => 'nullable|array',
+            'attachments.*.name'     => 'required_with:attachments|string|max:255',
+            'attachments.*.content'  => 'required_with:attachments|string',
+            'attachments.*.type'     => 'nullable|string|max:255',
+            'attachments.*.size'     => 'nullable|integer',
         ]);
 
-        $atem = Atem::create([
-            'title'           => $data['title'] ?? 'Untitled ATEM',
-            'issuer_staff_id' => $data['issuer_staff_id'] ?? null,
-            'issuer_name'     => $data['issuer_name'] ?? null,
-            'department_id'   => $data['department_id'] ?? null,
-            'department_name' => $data['department_name'] ?? null,
-            'record_state'    => 'draft',
-            'created_by'      => $data['issuer_staff_id'] ?? null,
-        ]);
+        // Attachments are validated by extension. Content-sniffing (Laravel's
+        // mimes rule) wrongly rejects valid zip-based Office files (docx/xlsx).
+        if (!empty($data['attachments'])) {
+            foreach ($data['attachments'] as $att) {
+                $ext = strtolower(pathinfo($att['name'], PATHINFO_EXTENSION));
+                if (!in_array($ext, self::ALLOWED_ATTACHMENT_EXT, true)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'File type not allowed: ' . $att['name'],
+                    ], 422);
+                }
+            }
+        }
+
+        // Lifecycle is a status now: Save-as-draft -> Draft, normal Save -> Pending.
+        $statusValue = (($data['mode'] ?? 'final') === 'draft') ? 'Draft' : 'Pending';
+        $statusId = AtemStatus::where('value', $statusValue)->value('id');
+        $createdBy = $data['created_by'] ?? ($data['issuer_staff_id'] ?? null);
+
+        $level = !empty($data['level_structure_id']) ? LevelStructure::find($data['level_structure_id']) : null;
+        $rule  = !empty($data['incentive_rule_id']) ? IncentiveRule::find($data['incentive_rule_id']) : null;
+        $incentive = $this->calculator->calculate($level, $rule, null);
+
+        $atem = DB::transaction(function () use ($data, $statusId, $createdBy, $incentive) {
+            $atem = Atem::create([
+                'title'                  => (isset($data['title']) && $data['title'] !== '') ? $data['title'] : 'Untitled ATEM',
+                'description'            => $data['description'] ?? null,
+                'issuer_staff_id'        => $data['issuer_staff_id'] ?? null,
+                'department_id'          => $data['department_id'] ?? null,
+                'level_structure_id'     => $data['level_structure_id'] ?? null,
+                'incentive_rule_id'      => $data['incentive_rule_id'] ?? null,
+                'atem_status_id'         => $statusId,
+                'base_incentive'         => $incentive['base'],
+                'start_date'             => $data['start_date'] ?? null,
+                'end_date'               => $data['end_date'] ?? null,
+                'final_due_date'         => $data['end_date'] ?? null,
+                'closure_date'           => $data['end_date'] ?? null,
+                'a_incentive_amount'     => $incentive['a'],
+                'r_incentive_amount'     => $incentive['r'],
+                'total_incentive_amount' => $incentive['total'],
+                'claimable'              => $incentive['claimable'],
+                'created_by'             => $createdBy,
+            ]);
+
+            if (!empty($data['arci'])) {
+                foreach ($data['arci'] as $member) {
+                    $atem->arci()->create([
+                        'staff_id'      => $member['staff_id'],
+                        'department_id' => $member['department_id'] ?? null,
+                        'role'          => $member['role'],
+                        'assigned_by'   => $createdBy,
+                    ]);
+                }
+            }
+
+            if (!empty($data['reference_links'])) {
+                foreach ($data['reference_links'] as $link) {
+                    $atem->referenceLinks()->create([
+                        'name'     => $link['name'],
+                        'url'      => $link['url'],
+                        'added_by' => $createdBy,
+                    ]);
+                }
+            }
+
+            if (!empty($data['attachments'])) {
+                foreach ($data['attachments'] as $att) {
+                    $atem->attachments()->create([
+                        'name'        => $att['name'],
+                        'type'        => $att['type'] ?? null,
+                        'size'        => $att['size'] ?? 0,
+                        'content'     => $att['content'],
+                        'uploaded_by' => $createdBy,
+                    ]);
+                }
+            }
+
+            return $atem;
+        });
 
         return response()->json([
             'success' => true,
-            'data'    => ['id' => $atem->id],
+            'data'    => [
+                'id' => $atem->id,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /api/atem
+     * Lists all ATEM cards (newest first) for the listing page. FK ids only -
+     * issuer/department names are resolved on the odb frontend.
+     */
+    public function index(): JsonResponse
+    {
+        $atems = Atem::with(['levelStructure', 'incentiveRule', 'status'])
+            ->orderByDesc('id')
+            ->get([
+                'id', 'title', 'issuer_staff_id', 'department_id',
+                'level_structure_id', 'incentive_rule_id', 'atem_status_id',
+                'start_date', 'end_date', 'final_due_date',
+                'total_incentive_amount', 'claimable', 'created_at',
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $atems,
         ]);
     }
 
@@ -70,7 +188,7 @@ class AtemController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $atem = Atem::with('arci')->findOrFail($id);
+        $atem = Atem::with(['arci', 'referenceLinks', 'attachments', 'status'])->findOrFail($id);
 
         return response()->json([
             'success' => true,
@@ -89,7 +207,6 @@ class AtemController extends Controller
         $data = $request->validate([
             'title'              => 'required|string|max:255',
             'description'        => 'nullable|string',
-            'google_link'        => 'nullable|string|max:255',
             'level_structure_id' => 'nullable|integer|exists:level_structures,id',
             'incentive_rule_id'  => 'nullable|integer|exists:incentive_rules,id',
             'start_date'         => 'nullable|date',
@@ -135,14 +252,11 @@ class AtemController extends Controller
             $finalDue = $ext2;
         }
 
-        // Closure date is set automatically when a closing status is selected.
+        // Closure date always follows the final due date.
+        $closureDate = $finalDue;
         $closingStatuses = ['Completed', 'Completed with Excellence', 'Failed'];
-        $closureDate = $atem->closure_date;
         $closedBy = $atem->closed_by;
         if ($statusValue !== null && in_array($statusValue, $closingStatuses, true)) {
-            if (empty($closureDate)) {
-                $closureDate = now()->toDateString();
-            }
             $closedBy = $data['updated_by'] ?? $closedBy;
         }
 
@@ -151,7 +265,6 @@ class AtemController extends Controller
         $atem->fill([
             'title'                  => $data['title'],
             'description'            => $data['description'] ?? null,
-            'google_link'            => $data['google_link'] ?? null,
             'level_structure_id'     => $data['level_structure_id'] ?? null,
             'incentive_rule_id'      => $data['incentive_rule_id'] ?? null,
             'base_incentive'         => $incentive['base'],
@@ -175,15 +288,11 @@ class AtemController extends Controller
             'closed_by'              => $closedBy,
         ]);
 
-        if (!empty($data['finalize'])) {
-            $atem->record_state = 'active';
-        }
-
         $atem->save();
 
         return response()->json([
             'success' => true,
-            'data'    => $atem->fresh('arci'),
+            'data'    => $atem->fresh(['arci', 'referenceLinks', 'attachments', 'status']),
         ]);
     }
 }

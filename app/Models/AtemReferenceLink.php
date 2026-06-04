@@ -6,18 +6,17 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class AtemArci extends Model
+class AtemReferenceLink extends Model
 {
     use HasFactory;
 
-    protected $table = 'atem_arci';
+    protected $table = 'atem_reference_links';
 
     protected $fillable = [
         'atem_id',
-        'staff_id',
-        'department_id',
-        'role',
-        'assigned_by',
+        'name',
+        'url',
+        'added_by',
     ];
 
     public function atem(): BelongsTo
