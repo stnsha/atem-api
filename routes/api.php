@@ -4,6 +4,7 @@ use App\Http\Controllers\API\AuthController;
 use App\Http\Controllers\AtemArciController;
 use App\Http\Controllers\AtemAttachmentController;
 use App\Http\Controllers\AtemController;
+use App\Http\Controllers\AtemProgressController;
 use App\Http\Controllers\AtemReferenceLinkController;
 use App\Http\Controllers\AtemStatusController;
 use App\Http\Controllers\IncentiveRuleController;
@@ -54,6 +55,12 @@ Route::middleware('auth:api')->group(function () {
     Route::get('/atem/{id}/reference-links',             [AtemReferenceLinkController::class, 'index'])->whereNumber('id');
     Route::post('/atem/{id}/reference-links',            [AtemReferenceLinkController::class, 'store'])->whereNumber('id');
     Route::delete('/atem/{id}/reference-links/{linkId}', [AtemReferenceLinkController::class, 'destroy'])->whereNumber('id')->whereNumber('linkId');
+
+    // ATEM progress updates
+    Route::get('/atem/{id}/progress',                    [AtemProgressController::class, 'index'])->whereNumber('id');
+    Route::post('/atem/{id}/progress',                   [AtemProgressController::class, 'store'])->whereNumber('id');
+    Route::put('/atem/{id}/progress/{progressId}',       [AtemProgressController::class, 'update'])->whereNumber('id')->whereNumber('progressId');
+    Route::delete('/atem/{id}/progress/{progressId}',    [AtemProgressController::class, 'destroy'])->whereNumber('id')->whereNumber('progressId');
 
     // ATEM attachments
     Route::get('/atem/{id}/attachments',                    [AtemAttachmentController::class, 'index'])->whereNumber('id');

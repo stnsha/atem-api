@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Atem;
 use App\Models\AtemReferenceLink;
+use App\Services\AtemAuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -11,7 +12,6 @@ class AtemReferenceLinkController extends Controller
 {
     /**
      * GET /api/atem/{id}/reference-links
-     * Lists the reference links for a card.
      */
     public function index(int $id): JsonResponse
     {
@@ -25,7 +25,6 @@ class AtemReferenceLinkController extends Controller
 
     /**
      * POST /api/atem/{id}/reference-links
-     * Adds a single named reference link.
      */
     public function store(Request $request, int $id): JsonResponse
     {
@@ -44,6 +43,13 @@ class AtemReferenceLinkController extends Controller
             'added_by' => $data['added_by'] ?? null,
         ]);
 
+        AtemAuditLogger::log(
+            $atem->id,
+            'reflink_added',
+            $data['added_by'] ?? null,
+            'Added reference link: ' . $data['name'] . '.'
+        );
+
         return response()->json([
             'success' => true,
             'data'    => $this->links($atem->id),
@@ -52,13 +58,23 @@ class AtemReferenceLinkController extends Controller
 
     /**
      * DELETE /api/atem/{id}/reference-links/{linkId}
-     * Removes one reference link scoped to the card.
      */
-    public function destroy(int $id, int $linkId): JsonResponse
+    public function destroy(Request $request, int $id, int $linkId): JsonResponse
     {
         $atem = Atem::findOrFail($id);
 
+        $link = AtemReferenceLink::where('atem_id', $atem->id)->where('id', $linkId)->first();
+        $linkName = $link ? $link->name : '#' . $linkId;
+
         AtemReferenceLink::where('atem_id', $atem->id)->where('id', $linkId)->delete();
+
+        $actorId = $request->input('actor_id');
+        AtemAuditLogger::log(
+            $atem->id,
+            'reflink_removed',
+            $actorId ? (int) $actorId : null,
+            'Removed reference link: ' . $linkName . '.'
+        );
 
         return response()->json([
             'success' => true,
@@ -66,11 +82,6 @@ class AtemReferenceLinkController extends Controller
         ]);
     }
 
-    /**
-     * Returns the card's reference links ordered for display.
-     *
-     * @return \Illuminate\Database\Eloquent\Collection
-     */
     private function links(int $atemId)
     {
         return AtemReferenceLink::where('atem_id', $atemId)->orderBy('id')->get();

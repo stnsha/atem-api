@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\AtemAuditLog;
+use App\Models\AtemProgress;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Atem extends Model
@@ -29,8 +31,6 @@ class Atem extends Model
         'final_due_date',
         'closure_date',
         'atem_status_id',
-        'failure_reason',
-        'excellence_remark',
         'remarks',
         'a_incentive_amount',
         'r_incentive_amount',
@@ -70,6 +70,16 @@ class Atem extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(AtemAttachment::class);
+    }
+
+    public function progress(): HasMany
+    {
+        return $this->hasMany(AtemProgress::class);
+    }
+
+    public function auditLogs(): HasMany
+    {
+        return $this->hasMany(AtemAuditLog::class);
     }
 
     public function levelStructure(): BelongsTo

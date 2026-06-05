@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Atem;
 use App\Models\AtemArci;
+use App\Services\AtemAuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,8 +14,6 @@ class AtemArciController extends Controller
 
     /**
      * POST /api/atem/{id}/arci
-     * Adds a single ARCI member. Role A is unique per card; a staff member can
-     * hold only one role per card.
      */
     public function store(Request $request, int $id): JsonResponse
     {
@@ -55,6 +54,13 @@ class AtemArciController extends Controller
             'assigned_by'   => $data['assigned_by'] ?? null,
         ]);
 
+        AtemAuditLogger::log(
+            $atem->id,
+            'arci_added',
+            $data['assigned_by'] ?? null,
+            'Added ' . $data['role'] . ' member (staff #' . $data['staff_id'] . ').'
+        );
+
         return response()->json([
             'success' => true,
             'data'    => $this->grouped($atem->id),
@@ -63,7 +69,6 @@ class AtemArciController extends Controller
 
     /**
      * DELETE /api/atem/{id}/arci
-     * Removes one member by staff id (and optionally role).
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
@@ -72,6 +77,7 @@ class AtemArciController extends Controller
         $data = $request->validate([
             'staff_id' => 'required|integer',
             'role'     => 'nullable|in:A,R,C,I',
+            'actor_id' => 'nullable|integer',
         ]);
 
         $query = AtemArci::where('atem_id', $atem->id)->where('staff_id', $data['staff_id']);
@@ -79,6 +85,14 @@ class AtemArciController extends Controller
             $query->where('role', $data['role']);
         }
         $query->delete();
+
+        $roleLabel = $data['role'] ?? 'unknown';
+        AtemAuditLogger::log(
+            $atem->id,
+            'arci_removed',
+            $data['actor_id'] ?? null,
+            'Removed ' . $roleLabel . ' member (staff #' . $data['staff_id'] . ').'
+        );
 
         return response()->json([
             'success' => true,
@@ -88,9 +102,8 @@ class AtemArciController extends Controller
 
     /**
      * DELETE /api/atem/{id}/arci/role/{role}
-     * Removes every member assigned to a role.
      */
-    public function destroyByRole(int $id, string $role): JsonResponse
+    public function destroyByRole(Request $request, int $id, string $role): JsonResponse
     {
         $atem = Atem::findOrFail($id);
 
@@ -103,17 +116,20 @@ class AtemArciController extends Controller
 
         AtemArci::where('atem_id', $atem->id)->where('role', $role)->delete();
 
+        $actorId = $request->input('actor_id');
+        AtemAuditLogger::log(
+            $atem->id,
+            'arci_role_cleared',
+            $actorId ? (int) $actorId : null,
+            'Cleared all ' . $role . ' members.'
+        );
+
         return response()->json([
             'success' => true,
             'data'    => $this->grouped($atem->id),
         ]);
     }
 
-    /**
-     * Returns members for a card grouped by role, ready for the UI to render.
-     *
-     * @return array<string, array>
-     */
     private function grouped(int $atemId): array
     {
         $members = AtemArci::where('atem_id', $atemId)->orderBy('id')->get();

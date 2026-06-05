@@ -188,7 +188,14 @@ class AtemController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $atem = Atem::with(['arci', 'referenceLinks', 'attachments', 'status'])->findOrFail($id);
+        $atem = Atem::with([
+            'arci',
+            'referenceLinks',
+            'attachments',
+            'status',
+            'progress',
+            'auditLogs' => fn ($q) => $q->orderByDesc('created_at')->limit(100),
+        ])->findOrFail($id);
 
         return response()->json([
             'success' => true,
@@ -215,8 +222,6 @@ class AtemController extends Controller
             'extended_date_1'    => 'nullable|date',
             'extended_date_2'    => 'nullable|date',
             'atem_status_id'     => 'nullable|integer|exists:atem_statuses,id',
-            'failure_reason'     => 'nullable|string',
-            'excellence_remark'  => 'nullable|string',
             'remarks'            => 'nullable|string',
             'updated_by'         => 'nullable|integer',
             'finalize'           => 'boolean',
@@ -277,8 +282,6 @@ class AtemController extends Controller
             'final_due_date'         => $finalDue,
             'closure_date'           => $closureDate,
             'atem_status_id'         => $data['atem_status_id'] ?? null,
-            'failure_reason'         => $data['failure_reason'] ?? null,
-            'excellence_remark'      => $data['excellence_remark'] ?? null,
             'remarks'                => $data['remarks'] ?? null,
             'a_incentive_amount'     => $incentive['a'],
             'r_incentive_amount'     => $incentive['r'],
