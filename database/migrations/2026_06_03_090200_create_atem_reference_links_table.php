@@ -23,6 +23,7 @@ return new class extends Migration
             $table->unsignedBigInteger('added_by')->nullable();
 
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 

@@ -88,7 +88,7 @@ class AtemController extends Controller
         }
 
         // Lifecycle is a status now: Save-as-draft -> Draft, normal Save -> Pending.
-        $statusValue = (($data['mode'] ?? 'final') === 'draft') ? 'Draft' : 'Pending';
+        $statusValue = (($data['mode'] ?? 'final') === 'draft') ? 'Draft' : 'Active';
         $statusId = AtemStatus::where('value', $statusValue)->value('id');
         $createdBy = $data['created_by'] ?? ($data['issuer_staff_id'] ?? null);
 
@@ -168,7 +168,7 @@ class AtemController extends Controller
      */
     public function index(): JsonResponse
     {
-        $atems = Atem::with(['levelStructure', 'incentiveRule', 'status'])
+        $atems = Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci'])
             ->orderByDesc('id')
             ->get([
                 'id', 'title', 'issuer_staff_id', 'department_id',

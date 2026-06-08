@@ -16,6 +16,7 @@ return new class extends Migration
             $table->json('changes')->nullable();
             $table->string('summary', 500)->nullable();
             $table->timestamps();
+            $table->softDeletes();
 
             $table->index(['atem_id', 'created_at']);
         });

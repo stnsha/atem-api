@@ -24,6 +24,7 @@ return new class extends Migration
             $table->unsignedBigInteger('assigned_by')->nullable();
 
             $table->timestamps();
+            $table->softDeletes();
 
             $table->unique(['atem_id', 'staff_id']);
             $table->index('role');

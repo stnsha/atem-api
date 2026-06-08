@@ -25,6 +25,7 @@ return new class extends Migration
             $table->unsignedBigInteger('uploaded_by')->nullable();
 
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 

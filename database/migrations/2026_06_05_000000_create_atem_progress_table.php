@@ -17,6 +17,7 @@ return new class extends Migration
             $table->text('remark')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 
