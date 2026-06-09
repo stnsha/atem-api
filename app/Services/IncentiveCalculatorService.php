@@ -28,7 +28,8 @@ class IncentiveCalculatorService
     public function calculate(
         ?LevelStructure $level,
         ?IncentiveRule $rule,
-        ?string $statusValue = null
+        ?string $statusValue = null,
+        int $rCount = 0
     ): array {
         $base = $level ? (float) $level->incentive_value : 0.0;
 
@@ -38,7 +39,8 @@ class IncentiveCalculatorService
         if ($base > 0 && $rule) {
             // A always receives the full base when a rule is applied.
             $a = $base;
-            $r = $this->responsibleFactor($rule) * $base;
+            // R amount scales with the number of Responsible staff assigned.
+            $r = $this->responsibleFactor($rule) * $base * $rCount;
         }
 
         $total = $a + $r;

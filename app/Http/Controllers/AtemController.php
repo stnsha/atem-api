@@ -94,7 +94,15 @@ class AtemController extends Controller
 
         $level = !empty($data['level_structure_id']) ? LevelStructure::find($data['level_structure_id']) : null;
         $rule  = !empty($data['incentive_rule_id']) ? IncentiveRule::find($data['incentive_rule_id']) : null;
-        $incentive = $this->calculator->calculate($level, $rule, null);
+        $rCount = 0;
+        if (!empty($data['arci'])) {
+            foreach ($data['arci'] as $member) {
+                if (isset($member['role']) && $member['role'] === 'R') {
+                    $rCount++;
+                }
+            }
+        }
+        $incentive = $this->calculator->calculate($level, $rule, null, $rCount);
 
         $atem = DB::transaction(function () use ($data, $statusId, $createdBy, $incentive) {
             $atem = Atem::create([
@@ -257,15 +265,19 @@ class AtemController extends Controller
             $finalDue = $ext2;
         }
 
-        // Closure date always follows the final due date.
-        $closureDate = $finalDue;
+        // Closure date is the date the ATEM was actually closed (terminal status),
+        // not the Final Due Date. Preserve it if already set on a re-save.
         $closingStatuses = ['Completed', 'Completed with Excellence', 'Failed'];
         $closedBy = $atem->closed_by;
         if ($statusValue !== null && in_array($statusValue, $closingStatuses, true)) {
+            $closureDate = $atem->closure_date ?: now()->toDateString();
             $closedBy = $data['updated_by'] ?? $closedBy;
+        } else {
+            $closureDate = null;
         }
 
-        $incentive = $this->calculator->calculate($level, $rule, $statusValue);
+        $rCount = $atem->arci()->where('role', 'R')->count();
+        $incentive = $this->calculator->calculate($level, $rule, $statusValue, $rCount);
 
         $atem->fill([
             'title'                  => $data['title'],
@@ -297,5 +309,38 @@ class AtemController extends Controller
             'success' => true,
             'data'    => $atem->fresh(['arci', 'referenceLinks', 'attachments', 'status']),
         ]);
+    }
+
+    /**
+     * DELETE /api/atem/{id}
+     * Permanently deletes a Draft ATEM. Only the Issuer may delete.
+     */
+    public function destroy(int $id, Request $request): JsonResponse
+    {
+        $atem = Atem::with('status')->findOrFail($id);
+
+        if (!$atem->status || $atem->status->value !== 'Draft') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only Draft ATEMs can be deleted.',
+            ], 403);
+        }
+
+        $actorId = (int) $request->input('actor_id', 0);
+        if ($actorId === 0 || $actorId !== (int) $atem->issuer_staff_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only the Issuer can delete this ATEM.',
+            ], 403);
+        }
+
+        $atem->arci()->delete();
+        $atem->referenceLinks()->delete();
+        $atem->attachments()->delete();
+        $atem->progress()->delete();
+        $atem->auditLogs()->delete();
+        $atem->delete();
+
+        return response()->json(['success' => true]);
     }
 }

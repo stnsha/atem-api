@@ -43,8 +43,9 @@ Route::middleware('auth:api')->group(function () {
     // ATEM cards
     Route::get('/atem',       [AtemController::class, 'index']);
     Route::post('/atem',      [AtemController::class, 'store']);
-    Route::get('/atem/{id}',  [AtemController::class, 'show'])->whereNumber('id');
-    Route::put('/atem/{id}',  [AtemController::class, 'update'])->whereNumber('id');
+    Route::get('/atem/{id}',    [AtemController::class, 'show'])->whereNumber('id');
+    Route::put('/atem/{id}',    [AtemController::class, 'update'])->whereNumber('id');
+    Route::delete('/atem/{id}', [AtemController::class, 'destroy'])->whereNumber('id');
 
     // ATEM ARCI members
     Route::post('/atem/{id}/arci',                [AtemArciController::class, 'store'])->whereNumber('id');
