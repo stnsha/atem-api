@@ -117,7 +117,7 @@ class AtemController extends Controller
                 'start_date'             => $data['start_date'] ?? null,
                 'end_date'               => $data['end_date'] ?? null,
                 'final_due_date'         => $data['end_date'] ?? null,
-                'closure_date'           => $data['end_date'] ?? null,
+                'closure_date'           => null,
                 'a_incentive_amount'     => $incentive['a'],
                 'r_incentive_amount'     => $incentive['r'],
                 'total_incentive_amount' => $incentive['total'],
@@ -182,7 +182,7 @@ class AtemController extends Controller
                 'id', 'title', 'issuer_staff_id', 'staff_dept_id',
                 'level_structure_id', 'incentive_rule_id', 'atem_status_id',
                 'start_date', 'end_date', 'final_due_date',
-                'total_incentive_amount', 'claimable', 'created_at',
+                'is_extended', 'total_incentive_amount', 'claimable', 'created_at',
             ]);
 
         return response()->json([

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\API\AuthController;
+use App\Http\Controllers\AtemBonusEligibilityController;
 use App\Http\Controllers\AtemArciController;
 use App\Http\Controllers\AtemAttachmentController;
 use App\Http\Controllers\AtemController;
@@ -62,6 +63,11 @@ Route::middleware('auth:api')->group(function () {
     Route::post('/atem/{id}/progress',                   [AtemProgressController::class, 'store'])->whereNumber('id');
     Route::put('/atem/{id}/progress/{progressId}',       [AtemProgressController::class, 'update'])->whereNumber('id')->whereNumber('progressId');
     Route::delete('/atem/{id}/progress/{progressId}',    [AtemProgressController::class, 'destroy'])->whereNumber('id')->whereNumber('progressId');
+
+    // Bonus eligibility
+    Route::get('/bonus-eligibility',           [AtemBonusEligibilityController::class, 'index']);
+    Route::put('/bonus-eligibility/{id}',      [AtemBonusEligibilityController::class, 'update'])->whereNumber('id');
+    Route::post('/bonus-eligibility/calculate',[AtemBonusEligibilityController::class, 'calculate']);
 
     // ATEM attachments
     Route::get('/atem/{id}/attachments',                    [AtemAttachmentController::class, 'index'])->whereNumber('id');
