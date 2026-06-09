@@ -18,7 +18,7 @@ class Atem extends Model
         'title',
         'description',
         'issuer_staff_id',
-        'department_id',
+        'staff_dept_id',
         'level_structure_id',
         'incentive_rule_id',
         'base_incentive',

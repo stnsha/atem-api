@@ -18,7 +18,7 @@ return new class extends Migration
             // Staff identity is sourced from the odb database. Only the foreign
             // ids are stored; names are resolved on the odb frontend by id.
             $table->unsignedBigInteger('staff_id');
-            $table->unsignedBigInteger('department_id')->nullable();
+            $table->unsignedBigInteger('staff_dept_id')->nullable();
 
             $table->enum('role', ['A', 'R', 'C', 'I']);
             $table->unsignedBigInteger('assigned_by')->nullable();

@@ -16,7 +16,7 @@ class AtemArci extends Model
     protected $fillable = [
         'atem_id',
         'staff_id',
-        'department_id',
+        'staff_dept_id',
         'role',
         'assigned_by',
     ];

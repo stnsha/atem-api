@@ -20,7 +20,7 @@ return new class extends Migration
             // Names are resolved on the odb frontend via these ids (the odb
             // staff / staff_department tables); no name snapshot is stored here.
             $table->unsignedBigInteger('issuer_staff_id')->nullable();
-            $table->unsignedBigInteger('department_id')->nullable();
+            $table->unsignedBigInteger('staff_dept_id')->nullable();
 
             // Classification and incentive configuration
             $table->foreignId('level_structure_id')->nullable()->constrained('level_structures');

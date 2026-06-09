@@ -52,7 +52,7 @@ class AtemController extends Controller
             'title'                  => 'nullable|string|max:255',
             'description'            => 'nullable|string',
             'issuer_staff_id'        => 'nullable|integer',
-            'department_id'          => 'nullable|integer',
+            'staff_dept_id'          => 'nullable|integer',
             'level_structure_id'     => 'nullable|integer|exists:level_structures,id',
             'incentive_rule_id'      => 'nullable|integer|exists:incentive_rules,id',
             'start_date'             => 'nullable|date',
@@ -61,7 +61,7 @@ class AtemController extends Controller
             'mode'                   => 'nullable|in:draft,final',
             'arci'                   => 'nullable|array',
             'arci.*.staff_id'        => 'required_with:arci|integer',
-            'arci.*.department_id'   => 'nullable|integer',
+            'arci.*.staff_dept_id'   => 'nullable|integer',
             'arci.*.role'            => 'required_with:arci|in:A,R,C,I',
             'reference_links'        => 'nullable|array',
             'reference_links.*.name' => 'required_with:reference_links|string|max:255',
@@ -109,7 +109,7 @@ class AtemController extends Controller
                 'title'                  => (isset($data['title']) && $data['title'] !== '') ? $data['title'] : 'Untitled ATEM',
                 'description'            => $data['description'] ?? null,
                 'issuer_staff_id'        => $data['issuer_staff_id'] ?? null,
-                'department_id'          => $data['department_id'] ?? null,
+                'staff_dept_id'          => $data['staff_dept_id'] ?? null,
                 'level_structure_id'     => $data['level_structure_id'] ?? null,
                 'incentive_rule_id'      => $data['incentive_rule_id'] ?? null,
                 'atem_status_id'         => $statusId,
@@ -129,7 +129,7 @@ class AtemController extends Controller
                 foreach ($data['arci'] as $member) {
                     $atem->arci()->create([
                         'staff_id'      => $member['staff_id'],
-                        'department_id' => $member['department_id'] ?? null,
+                        'staff_dept_id' => $member['staff_dept_id'] ?? null,
                         'role'          => $member['role'],
                         'assigned_by'   => $createdBy,
                     ]);
@@ -179,7 +179,7 @@ class AtemController extends Controller
         $atems = Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci'])
             ->orderByDesc('id')
             ->get([
-                'id', 'title', 'issuer_staff_id', 'department_id',
+                'id', 'title', 'issuer_staff_id', 'staff_dept_id',
                 'level_structure_id', 'incentive_rule_id', 'atem_status_id',
                 'start_date', 'end_date', 'final_due_date',
                 'total_incentive_amount', 'claimable', 'created_at',

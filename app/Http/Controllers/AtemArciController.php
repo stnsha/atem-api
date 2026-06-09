@@ -21,7 +21,7 @@ class AtemArciController extends Controller
 
         $data = $request->validate([
             'staff_id'      => 'required|integer',
-            'department_id' => 'nullable|integer',
+            'staff_dept_id' => 'nullable|integer',
             'role'          => 'required|in:A,R,C,I',
             'assigned_by'   => 'nullable|integer',
         ]);
@@ -49,7 +49,7 @@ class AtemArciController extends Controller
         AtemArci::create([
             'atem_id'       => $atem->id,
             'staff_id'      => $data['staff_id'],
-            'department_id' => $data['department_id'] ?? null,
+            'staff_dept_id' => $data['staff_dept_id'] ?? null,
             'role'          => $data['role'],
             'assigned_by'   => $data['assigned_by'] ?? null,
         ]);
