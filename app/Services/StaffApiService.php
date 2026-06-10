@@ -36,6 +36,7 @@ class StaffApiService extends OctopusApiService
                     $map[(int) $row['id']] = array(
                         'grade'  => isset($row['grade'])  ? (int) $row['grade']  : null,
                         'struct' => isset($row['struct']) ? (int) $row['struct'] : null,
+                        'atem'   => isset($row['atem'])   ? (int) $row['atem']   : 0,
                     );
                 }
             }

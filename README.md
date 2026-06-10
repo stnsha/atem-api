@@ -1,66 +1,197 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# ATEM API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 10 REST API backing the ATEM (Accountability, Tracking, Engagement & Metrics) module. It stores ATEM cards, ARCI members, progress updates, attachments, reference links, incentive rules, level structures, and bonus eligibility records. Staff identity and grade data are resolved on-demand from the ODB system via `StaffApiService`.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Tech Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Framework:** Laravel 10 (PHP 8.2+)
+- **Auth:** JWT via `tymon/jwt-auth`
+- **Database:** MySQL (`atem_api` database)
+- **ODB Integration:** HTTP calls to `staff/info.php` for staff grade/struct/atem data
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Setup
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+```bash
+cd C:\laragon\www\atem-api
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan jwt:secret
+php artisan migrate:fresh --seed
+php artisan serve
+```
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+### Key Environment Variables (`.env`)
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains over 2000 video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+| Key | Description |
+|---|---|
+| `APP_ENV` | `local` or `production` |
+| `DB_*` | MySQL connection |
+| `ODB_API_URL_LOCAL` | ODB API base URL for local (`http://localhost/api`) |
+| `ODB_API_URL_PROD` | ODB API base URL for production |
+| `JWT_SECRET` | JWT signing secret |
 
-## Laravel Sponsors
+---
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the Laravel [Patreon page](https://patreon.com/taylorotwell).
+## Authentication
 
-### Premium Partners
+All routes except `POST /api/login` require `Authorization: Bearer <token>`.
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Cubet Techno Labs](https://cubettech.com)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[Many](https://www.many.co.uk)**
-- **[Webdock, Fast VPS Hosting](https://www.webdock.io/en)**
-- **[DevSquad](https://devsquad.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[OP.GG](https://op.gg)**
-- **[WebReinvent](https://webreinvent.com/?utm_source=laravel&utm_medium=github&utm_campaign=patreon-sponsors)**
-- **[Lendio](https://lendio.com)**
+The frontend uses a shared service account (`atem-service@local`) — individual staff are identified by `staff_id` fields in request bodies, not by the JWT subject.
 
-## Contributing
+```
+POST /api/login
+{ "email": "atem-service@local", "password": "atem-service-local" }
+→ { "data": { "access_token": "...", "expires_in": 3600 } }
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## API Endpoints
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### Auth
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/login` | Obtain JWT |
+| POST | `/api/logout` | Invalidate JWT |
+| GET | `/api/me` | Current auth user |
 
-## Security Vulnerabilities
+### Lookups
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/atem/lookups` | Combined levels, rules, statuses |
+| GET | `/api/atem/levels` | Level structures |
+| GET | `/api/atem/rules` | Incentive rules |
+| GET | `/api/atem/statuses` | ATEM statuses |
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+### ATEM Cards
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/atem` | All cards |
+| POST | `/api/atem` | Create card (draft or final) |
+| GET | `/api/atem/{id}` | Single card |
+| PUT | `/api/atem/{id}` | Update card |
+| DELETE | `/api/atem/{id}` | Delete card (draft only, issuer only) |
 
-## License
+### ARCI Members
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/atem/{id}/arci` | Add member |
+| DELETE | `/api/atem/{id}/arci` | Remove member (`?staff_id=&role=`) |
+| DELETE | `/api/atem/{id}/arci/role/{role}` | Remove all of a role |
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### Reference Links
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/atem/{id}/reference-links` | List |
+| POST | `/api/atem/{id}/reference-links` | Add |
+| DELETE | `/api/atem/{id}/reference-links/{linkId}` | Remove |
+
+### Progress Updates
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/atem/{id}/progress` | List |
+| POST | `/api/atem/{id}/progress` | Add |
+| PUT | `/api/atem/{id}/progress/{progressId}` | Update |
+| DELETE | `/api/atem/{id}/progress/{progressId}` | Remove |
+
+### Attachments
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/atem/{id}/attachments` | List |
+| POST | `/api/atem/{id}/attachments` | Upload (multipart) |
+| DELETE | `/api/atem/{id}/attachments/{attId}` | Remove |
+| GET | `/api/atem/{id}/attachments/{attId}/download` | Download file |
+
+### Bonus Eligibility
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/bonus-eligibility` | List (`?month=&year=&staff_id=`) |
+| PUT | `/api/bonus-eligibility/{id}` | Update remark |
+| POST | `/api/bonus-eligibility/calculate` | Trigger calculation (`{month, year}`) |
+
+---
+
+## Database Schema
+
+### `atems`
+- `id`, `title`, `description`
+- `issuer_staff_id`, `staff_dept_id` — ODB FK ids only; names resolved on the frontend
+- `level_structure_id`, `incentive_rule_id`
+- `base_incentive`, `a_incentive_amount`, `r_incentive_amount`, `total_incentive_amount`, `claimable`
+- `start_date`, `end_date`, `is_extended`, `extended_date_1/2`, `extension_count`, `final_due_date`, `closure_date`
+- `atem_status_id`, `remarks`
+- `created_by`, `updated_by`, `closed_by` (staff ids)
+- Soft deletes + timestamps
+
+### `atem_arci`
+`atem_id`, `staff_id`, `staff_name`, `staff_dept_id`, `department_name`, `role`, `assigned_by`
+
+### `atem_reference_links`
+`atem_id`, `name`, `url`, `added_by`
+
+### `atem_attachments`
+`atem_id`, `file_name`, `file_path`, `file_size`, `mime_type`, `uploaded_by`
+
+### `atem_progress`
+`atem_id`, `content`, `created_by`
+
+### `atem_audit_logs`
+`atem_id`, `actor_staff_id`, `action`, `old_values`, `new_values` — immutable audit trail
+
+### `level_structures`
+ATEM level definitions (L1 Operational through L4 Company-Level).
+
+### `incentive_rules`
+Incentive multiplier rules linked to level structures.
+
+### `atem_statuses`
+Card lifecycle statuses (Draft, Active, Completed, Completed with Excellence, Failed, Extended, etc.).
+
+### `atem_bonus_eligibilities`
+Monthly eligibility snapshots: `staff_id`, `staff_grade`, `staff_struct`, `month`, `year`, `remark`. Grade and struct are snapshotted at calculation time from the ODB API.
+
+---
+
+## ODB Integration
+
+### `StaffApiService::getStaffInfo(array $staffIds)`
+
+Calls `POST {ODB_API_URL}/staff/info.php` and returns:
+```php
+[
+    staff_id => [
+        'grade'  => int,   // ATEM grade level 0-6
+        'struct' => int,   // Structure level
+        'atem'   => int,   // SuperAdmin flag: 0=normal, 1=superadmin
+    ]
+]
+```
+
+### `staff.atem` SuperAdmin Flag
+
+`staff.atem = 1` means the staff member is a SuperAdmin in the ATEM module regardless of their `staff.grade`. The ODB `staff/info.php` endpoint returns this flag alongside `grade` and `struct` so the backend has it available for future access control decisions.
+
+---
+
+## Console Commands
+
+**`atem:calculate-bonus-eligibility {month} {year}`** (`app/Console/Commands/CalculateBonusEligibility.php`)
+
+Calculates bonus eligibility for all staff with ATEM cards in the given period. Calls `StaffApiService` to snapshot current grade/struct, then writes `atem_bonus_eligibilities` records.
+
+---
+
+## Key Services
+
+| Service | File | Purpose |
+|---|---|---|
+| `StaffApiService` | `app/Services/StaffApiService.php` | Fetch grade/struct/atem from ODB |
+| `OctopusApiService` | `app/Services/OctopusApiService.php` | Base HTTP client for ODB API |
+| `IncentiveCalculatorService` | `app/Services/IncentiveCalculatorService.php` | Incentive amount calculations |
+| `AtemAuditLogger` | `app/Services/AtemAuditLogger.php` | Write audit log entries |
+| `TableauApiService` | `app/Services/TableauApiService.php` | Tableau view data proxy |
