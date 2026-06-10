@@ -118,7 +118,7 @@ class MigrateIidasAtems extends Command
         if (!$dryRun) {
             $newAtemId = DB::table('atems')->insertGetId([
                 'title'              => $title,
-                'description'        => $fullText,
+                'description'        => null,
                 'issuer_staff_id'    => $createdBy,
                 'staff_dept_id'      => $deptId,
                 'level_structure_id' => 1,
@@ -188,7 +188,7 @@ class MigrateIidasAtems extends Command
                     'start_date' => $subStart,
                     'end_date'   => $subEnd,
                     'status'     => 'green',
-                    'remark'     => $sub['remark'] ?: null,
+                    'remark'     => isset($sub['remark']) ? ($sub['remark'] ?: null) : null,
                     'created_by' => (int) ($sub['created_by'] ?? $createdBy),
                     'created_at' => $now,
                     'updated_at' => $now,
