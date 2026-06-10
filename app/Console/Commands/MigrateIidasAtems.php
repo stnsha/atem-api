@@ -19,7 +19,7 @@ class MigrateIidasAtems extends Command
     // 0 = pending → 1 (Draft), 1 = in progress → 2 (Active), 2 = complete → 3 (Completed)
     private array $statusMap = [0 => 1, 1 => 2, 2 => 3];
 
-    private string $iidasBaseUrl = 'http://localhost/odb/iidas';
+    private string $iidasBaseUrl = 'http://octopusdb.info:8080/odb/iidas';
 
     public function handle(IidasMigrationService $iidas): int
     {
@@ -106,7 +106,9 @@ class MigrateIidasAtems extends Command
         $now       = Carbon::now()->toDateTimeString();
         $deletedAt = ((int) $atem['recycle'] === 1) ? $now : null;
 
-        $title      = $atem['action_details'] ?? '';
+        $fullText   = $atem['action_details'] ?? '';
+        $firstLine  = trim(strtok($fullText, "\n\r"));
+        $title      = mb_substr($firstLine !== '' ? $firstLine : $fullText, 0, 255);
         $startDate  = $atem['start_date'] ?: null;
         $endDate    = $atem['end_date']   ?: null;
         $deptId     = !empty($atem['department_id']) ? (int) $atem['department_id'] : null;
@@ -116,7 +118,7 @@ class MigrateIidasAtems extends Command
         if (!$dryRun) {
             $newAtemId = DB::table('atems')->insertGetId([
                 'title'              => $title,
-                'description'        => $title,
+                'description'        => $fullText,
                 'issuer_staff_id'    => $createdBy,
                 'staff_dept_id'      => $deptId,
                 'level_structure_id' => 1,
