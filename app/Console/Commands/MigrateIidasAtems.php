@@ -164,12 +164,13 @@ class MigrateIidasAtems extends Command
             $insertedStaff[] = $picId;
             if (!$dryRun && $newAtemId) {
                 DB::table('atem_arci')->insert([
-                    'atem_id'    => $newAtemId,
-                    'staff_id'   => $picId,
-                    'role'       => 'R',
-                    'assigned_by'=> $createdBy,
-                    'created_at' => $now,
-                    'updated_at' => $now,
+                    'atem_id'      => $newAtemId,
+                    'staff_id'     => $picId,
+                    'staff_dept_id'=> isset($pic['dept_id']) ? $pic['dept_id'] : null,
+                    'role'         => 'R',
+                    'assigned_by'  => $createdBy,
+                    'created_at'   => $now,
+                    'updated_at'   => $now,
                 ]);
             }
             $counters['arci']++;
