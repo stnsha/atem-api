@@ -36,23 +36,34 @@ class AtemArciController extends Controller
             }
         }
 
-        $exists = AtemArci::where('atem_id', $atem->id)
+        $existing = AtemArci::withTrashed()
+            ->where('atem_id', $atem->id)
             ->where('staff_id', $data['staff_id'])
-            ->exists();
-        if ($exists) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This staff member is already assigned on this ATEM.',
-            ], 422);
-        }
+            ->first();
 
-        AtemArci::create([
-            'atem_id'       => $atem->id,
-            'staff_id'      => $data['staff_id'],
-            'staff_dept_id' => $data['staff_dept_id'] ?? null,
-            'role'          => $data['role'],
-            'assigned_by'   => $data['assigned_by'] ?? null,
-        ]);
+        if ($existing) {
+            if (!$existing->trashed()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This staff member is already assigned on this ATEM.',
+                ], 422);
+            }
+            // Restore the soft-deleted record and update the role instead of inserting.
+            $existing->restore();
+            $existing->update([
+                'role'          => $data['role'],
+                'staff_dept_id' => $data['staff_dept_id'] ?? null,
+                'assigned_by'   => $data['assigned_by'] ?? null,
+            ]);
+        } else {
+            AtemArci::create([
+                'atem_id'       => $atem->id,
+                'staff_id'      => $data['staff_id'],
+                'staff_dept_id' => $data['staff_dept_id'] ?? null,
+                'role'          => $data['role'],
+                'assigned_by'   => $data['assigned_by'] ?? null,
+            ]);
+        }
 
         AtemAuditLogger::log(
             $atem->id,
