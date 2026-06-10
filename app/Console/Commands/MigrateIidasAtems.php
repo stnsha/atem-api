@@ -188,7 +188,7 @@ class MigrateIidasAtems extends Command
                     'start_date' => $subStart,
                     'end_date'   => $subEnd,
                     'status'     => 'green',
-                    'remark'     => $sub['atem_detail'] ?: null,
+                    'remark'     => $sub['remark'] ?: null,
                     'created_by' => (int) ($sub['created_by'] ?? $createdBy),
                     'created_at' => $now,
                     'updated_at' => $now,
