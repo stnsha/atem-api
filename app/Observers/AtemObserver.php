@@ -20,8 +20,9 @@ class AtemObserver
         'start_date'         => 'Start Date',
         'end_date'           => 'End Date',
         'is_extended'        => 'Extended',
-        'extended_date_1'    => 'Extended Date 1',
-        'extended_date_2'    => 'Extended Date 2',
+        'extended_date_1'    => 'Extended Date',
+        'final_incentive_amount' => 'Final Incentive Amount',
+        'incentive_approved' => 'Incentive Approved',
         'atem_status_id'     => 'Status',
         'remarks'            => 'Remarks',
     ];

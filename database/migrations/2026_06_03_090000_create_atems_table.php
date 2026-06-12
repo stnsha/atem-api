@@ -32,7 +32,6 @@ return new class extends Migration
             $table->date('end_date')->nullable();
             $table->boolean('is_extended')->default(false);
             $table->date('extended_date_1')->nullable();
-            $table->date('extended_date_2')->nullable();
             $table->unsignedTinyInteger('extension_count')->default(0);
             $table->date('final_due_date')->nullable();
             $table->date('closure_date')->nullable();
@@ -47,7 +46,9 @@ return new class extends Migration
             $table->double('a_incentive_amount', 10, 2)->default(0);
             $table->double('r_incentive_amount', 10, 2)->default(0);
             $table->double('total_incentive_amount', 10, 2)->default(0);
+            $table->double('final_incentive_amount', 10, 2)->default(0);
             $table->boolean('claimable')->default(false);
+            $table->boolean('incentive_approved')->default(false);
 
             // Lifecycle is tracked via atem_status_id (Draft / On Hold / In
             // Progress / Completed / ...). No separate record_state column.

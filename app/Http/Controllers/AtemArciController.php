@@ -20,18 +20,29 @@ class AtemArciController extends Controller
         $atem = Atem::findOrFail($id);
 
         $data = $request->validate([
-            'staff_id'      => 'required|integer',
-            'staff_dept_id' => 'nullable|integer',
-            'role'          => 'required|in:A,R,C,I',
-            'assigned_by'   => 'nullable|integer',
+            'staff_id'        => 'required|integer',
+            'staff_dept_id'   => 'nullable|integer',
+            'role'            => 'required|in:A,R,C,I',
+            'is_incentivised' => 'nullable|boolean',
+            'assigned_by'     => 'nullable|integer',
         ]);
 
         if ($data['role'] === 'A') {
-            $hasA = AtemArci::where('atem_id', $atem->id)->where('role', 'A')->exists();
-            if ($hasA) {
+            $countA = AtemArci::where('atem_id', $atem->id)->where('role', 'A')->count();
+            if ($countA >= 2) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Role A is already assigned. Remove the existing A before assigning a new one.',
+                    'message' => 'Role A (Accountable) is limited to 2 members.',
+                ], 422);
+            }
+        }
+
+        if ($data['role'] === 'R') {
+            $countR = AtemArci::where('atem_id', $atem->id)->where('role', 'R')->count();
+            if ($countR >= 2) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Role R (Responsible) is limited to 2 members.',
                 ], 422);
             }
         }
@@ -51,17 +62,19 @@ class AtemArciController extends Controller
             // Restore the soft-deleted record and update the role instead of inserting.
             $existing->restore();
             $existing->update([
-                'role'          => $data['role'],
-                'staff_dept_id' => $data['staff_dept_id'] ?? null,
-                'assigned_by'   => $data['assigned_by'] ?? null,
+                'role'            => $data['role'],
+                'staff_dept_id'   => $data['staff_dept_id'] ?? null,
+                'is_incentivised' => $data['is_incentivised'] ?? false,
+                'assigned_by'     => $data['assigned_by'] ?? null,
             ]);
         } else {
             AtemArci::create([
-                'atem_id'       => $atem->id,
-                'staff_id'      => $data['staff_id'],
-                'staff_dept_id' => $data['staff_dept_id'] ?? null,
-                'role'          => $data['role'],
-                'assigned_by'   => $data['assigned_by'] ?? null,
+                'atem_id'         => $atem->id,
+                'staff_id'        => $data['staff_id'],
+                'staff_dept_id'   => $data['staff_dept_id'] ?? null,
+                'role'            => $data['role'],
+                'is_incentivised' => $data['is_incentivised'] ?? false,
+                'assigned_by'     => $data['assigned_by'] ?? null,
             ]);
         }
 
@@ -134,6 +147,27 @@ class AtemArciController extends Controller
             $actorId ? (int) $actorId : null,
             'Cleared all ' . $role . ' members.'
         );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->grouped($atem->id),
+        ]);
+    }
+
+    /**
+     * PATCH /api/atem/{id}/arci/{arci_id}
+     * Updates the is_incentivised flag on a single ARCI member.
+     */
+    public function update(Request $request, int $id, int $arci_id): JsonResponse
+    {
+        $atem   = Atem::findOrFail($id);
+        $member = AtemArci::where('atem_id', $atem->id)->where('id', $arci_id)->firstOrFail();
+
+        $data = $request->validate([
+            'is_incentivised' => 'required|boolean',
+        ]);
+
+        $member->update(['is_incentivised' => $data['is_incentivised']]);
 
         return response()->json([
             'success' => true,

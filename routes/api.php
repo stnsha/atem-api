@@ -49,9 +49,10 @@ Route::middleware('auth:api')->group(function () {
     Route::delete('/atem/{id}', [AtemController::class, 'destroy'])->whereNumber('id');
 
     // ATEM ARCI members
-    Route::post('/atem/{id}/arci',                [AtemArciController::class, 'store'])->whereNumber('id');
-    Route::delete('/atem/{id}/arci',              [AtemArciController::class, 'destroy'])->whereNumber('id');
-    Route::delete('/atem/{id}/arci/role/{role}',  [AtemArciController::class, 'destroyByRole'])->whereNumber('id');
+    Route::post('/atem/{id}/arci',                          [AtemArciController::class, 'store'])->whereNumber('id');
+    Route::patch('/atem/{id}/arci/{arci_id}',               [AtemArciController::class, 'update'])->whereNumber('id')->whereNumber('arci_id');
+    Route::delete('/atem/{id}/arci',                        [AtemArciController::class, 'destroy'])->whereNumber('id');
+    Route::delete('/atem/{id}/arci/role/{role}',            [AtemArciController::class, 'destroyByRole'])->whereNumber('id');
 
     // ATEM reference links
     Route::get('/atem/{id}/reference-links',             [AtemReferenceLinkController::class, 'index'])->whereNumber('id');

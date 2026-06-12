@@ -59,10 +59,11 @@ class AtemController extends Controller
             'end_date'               => 'nullable|date',
             'created_by'             => 'nullable|integer',
             'mode'                   => 'nullable|in:draft,final',
-            'arci'                   => 'nullable|array',
-            'arci.*.staff_id'        => 'required_with:arci|integer',
-            'arci.*.staff_dept_id'   => 'nullable|integer',
-            'arci.*.role'            => 'required_with:arci|in:A,R,C,I',
+            'arci'                        => 'nullable|array',
+            'arci.*.staff_id'             => 'required_with:arci|integer',
+            'arci.*.staff_dept_id'        => 'nullable|integer',
+            'arci.*.role'                 => 'required_with:arci|in:A,R,C,I',
+            'arci.*.is_incentivised'      => 'nullable|boolean',
             'reference_links'        => 'nullable|array',
             'reference_links.*.name' => 'required_with:reference_links|string|max:255',
             'reference_links.*.url'  => 'required_with:reference_links|url|max:1000',
@@ -94,15 +95,17 @@ class AtemController extends Controller
 
         $level = !empty($data['level_structure_id']) ? LevelStructure::find($data['level_structure_id']) : null;
         $rule  = !empty($data['incentive_rule_id']) ? IncentiveRule::find($data['incentive_rule_id']) : null;
-        $rCount = 0;
+        $incentivisedACount = 0;
+        $incentivisedRCount = 0;
         if (!empty($data['arci'])) {
             foreach ($data['arci'] as $member) {
-                if (isset($member['role']) && $member['role'] === 'R') {
-                    $rCount++;
+                if (!empty($member['is_incentivised'])) {
+                    if (isset($member['role']) && $member['role'] === 'A') { $incentivisedACount++; }
+                    if (isset($member['role']) && $member['role'] === 'R') { $incentivisedRCount++; }
                 }
             }
         }
-        $incentive = $this->calculator->calculate($level, $rule, null, $rCount);
+        $incentive = $this->calculator->calculate($level, $rule, null, $incentivisedACount, $incentivisedRCount);
 
         $atem = DB::transaction(function () use ($data, $statusId, $createdBy, $incentive) {
             $atem = Atem::create([
@@ -128,10 +131,11 @@ class AtemController extends Controller
             if (!empty($data['arci'])) {
                 foreach ($data['arci'] as $member) {
                     $atem->arci()->create([
-                        'staff_id'      => $member['staff_id'],
-                        'staff_dept_id' => $member['staff_dept_id'] ?? null,
-                        'role'          => $member['role'],
-                        'assigned_by'   => $createdBy,
+                        'staff_id'        => $member['staff_id'],
+                        'staff_dept_id'   => $member['staff_dept_id'] ?? null,
+                        'role'            => $member['role'],
+                        'is_incentivised' => !empty($member['is_incentivised']),
+                        'assigned_by'     => $createdBy,
                     ]);
                 }
             }
@@ -181,8 +185,8 @@ class AtemController extends Controller
             ->get([
                 'id', 'title', 'issuer_staff_id', 'staff_dept_id',
                 'level_structure_id', 'incentive_rule_id', 'atem_status_id',
-                'start_date', 'end_date', 'final_due_date',
-                'is_extended', 'total_incentive_amount', 'claimable', 'created_at',
+                'start_date', 'end_date', 'extended_date_1', 'final_due_date',
+                'is_extended', 'extension_count', 'total_incentive_amount', 'claimable', 'created_at',
             ]);
 
         return response()->json([
@@ -228,10 +232,10 @@ class AtemController extends Controller
             'end_date'           => 'nullable|date',
             'is_extended'        => 'boolean',
             'extended_date_1'    => 'nullable|date',
-            'extended_date_2'    => 'nullable|date',
             'atem_status_id'     => 'nullable|integer|exists:atem_statuses,id',
             'remarks'            => 'nullable|string',
             'updated_by'         => 'nullable|integer',
+            'incentive_approved' => 'boolean',
             'finalize'           => 'boolean',
         ]);
 
@@ -240,29 +244,26 @@ class AtemController extends Controller
         $status = !empty($data['atem_status_id']) ? AtemStatus::find($data['atem_status_id']) : null;
         $statusValue = $status ? $status->value : null;
 
-        // Extension handling: count is derived from the extended dates supplied,
-        // capped at the business maximum of two.
-        $isExtended = !empty($data['is_extended']);
-        $ext1 = $isExtended ? ($data['extended_date_1'] ?? null) : null;
-        $ext2 = $isExtended ? ($data['extended_date_2'] ?? null) : null;
-        $extensionCount = 0;
-        if ($ext1) {
-            $extensionCount++;
-        }
-        if ($ext2) {
-            $extensionCount++;
-        }
-        if ($extensionCount > 2) {
-            $extensionCount = 2;
-        }
+        // Extension handling: only one extension date is permitted.
+        $isExtended     = !empty($data['is_extended']);
+        $ext1           = $isExtended ? ($data['extended_date_1'] ?? null) : null;
+        $extensionCount = $ext1 ? 1 : 0;
 
-        // Final due date follows the latest extended date, otherwise the end date.
+        // Final due date follows the extension date when present, otherwise the end date.
         $finalDue = $data['end_date'] ?? null;
         if ($ext1) {
             $finalDue = $ext1;
         }
-        if ($ext2) {
-            $finalDue = $ext2;
+
+        // Once an extension date has been recorded, only Extended or Failed statuses are valid.
+        if ($atem->is_extended && $atem->extended_date_1) {
+            $newStatus = AtemStatus::find($data['atem_status_id'] ?? null);
+            if ($newStatus && !in_array($newStatus->value, ['Extended', 'Failed'], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Status cannot be changed to "' . $newStatus->value . '" once an extension date has been recorded. Only Extended or Failed are permitted.',
+                ], 422);
+            }
         }
 
         // Closure date is the date the ATEM was actually closed (terminal status),
@@ -272,12 +273,34 @@ class AtemController extends Controller
         if ($statusValue !== null && in_array($statusValue, $closingStatuses, true)) {
             $closureDate = $atem->closure_date ?: now()->toDateString();
             $closedBy = $data['updated_by'] ?? $closedBy;
+        } elseif ($isExtended && $ext1) {
+            // Extended closure date equals the extension date.
+            $closureDate = $ext1;
         } else {
             $closureDate = null;
         }
 
-        $rCount = $atem->arci()->where('role', 'R')->count();
-        $incentive = $this->calculator->calculate($level, $rule, $statusValue, $rCount);
+        $arciMembers = $atem->arci()->get();
+        $incentivisedACount = $arciMembers->where('role', 'A')->where('is_incentivised', true)->count();
+        $incentivisedRCount = $arciMembers->where('role', 'R')->where('is_incentivised', true)->count();
+        $incentive = $this->calculator->calculate($level, $rule, $statusValue, $incentivisedACount, $incentivisedRCount);
+
+        // Determine the final (approved/actual) incentive payout amount.
+        $approvedByIssuer = $request->boolean('incentive_approved', false);
+        if ($statusValue === 'Failed') {
+            $finalIncentive   = 0.0;
+            $approvedByIssuer = false;
+        } elseif ($isExtended) {
+            // Issuer explicitly approves or denies the estimated total.
+            $finalIncentive = $approvedByIssuer ? $incentive['total'] : 0.0;
+        } elseif (in_array($statusValue, ['Completed', 'Completed with Excellence'], true)) {
+            $finalIncentive   = $incentive['total'];
+            $approvedByIssuer = true;
+        } else {
+            // Draft / Active — no final decision yet.
+            $finalIncentive   = 0.0;
+            $approvedByIssuer = false;
+        }
 
         $atem->fill([
             'title'                  => $data['title'],
@@ -289,7 +312,6 @@ class AtemController extends Controller
             'end_date'               => $data['end_date'] ?? null,
             'is_extended'            => $isExtended,
             'extended_date_1'        => $ext1,
-            'extended_date_2'        => $ext2,
             'extension_count'        => $extensionCount,
             'final_due_date'         => $finalDue,
             'closure_date'           => $closureDate,
@@ -298,7 +320,9 @@ class AtemController extends Controller
             'a_incentive_amount'     => $incentive['a'],
             'r_incentive_amount'     => $incentive['r'],
             'total_incentive_amount' => $incentive['total'],
+            'final_incentive_amount' => $finalIncentive,
             'claimable'              => $incentive['claimable'],
+            'incentive_approved'     => $approvedByIssuer,
             'updated_by'             => $data['updated_by'] ?? null,
             'closed_by'              => $closedBy,
         ]);

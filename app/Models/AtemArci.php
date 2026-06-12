@@ -18,7 +18,12 @@ class AtemArci extends Model
         'staff_id',
         'staff_dept_id',
         'role',
+        'is_incentivised',
         'assigned_by',
+    ];
+
+    protected $casts = [
+        'is_incentivised' => 'boolean',
     ];
 
     public function atem(): BelongsTo

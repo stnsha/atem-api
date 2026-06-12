@@ -21,6 +21,7 @@ return new class extends Migration
             $table->unsignedBigInteger('staff_dept_id')->nullable();
 
             $table->enum('role', ['A', 'R', 'C', 'I']);
+            $table->boolean('is_incentivised')->default(false);
             $table->unsignedBigInteger('assigned_by')->nullable();
 
             $table->timestamps();
