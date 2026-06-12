@@ -17,6 +17,10 @@ return new class extends Migration
             $table->tinyInteger('month');
             $table->smallInteger('year');
             $table->integer('total_atem')->default(0);
+            $table->integer('complete_count')->default(0);
+            $table->integer('active_count')->default(0);
+            $table->integer('extend_count')->default(0);
+            $table->integer('failed_count')->default(0);
             $table->double('total_incentive', 10, 2)->default(0.00);
             $table->string('remark')->nullable();
             $table->timestamps();

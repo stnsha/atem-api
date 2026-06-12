@@ -4,9 +4,11 @@ namespace App\Console\Commands;
 
 use App\Models\Atem;
 use App\Models\AtemBonusEligibility;
+use App\Models\AtemStatus;
 use App\Services\StaffApiService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
 
 class CalculateBonusEligibility extends Command
 {
@@ -23,34 +25,28 @@ class CalculateBonusEligibility extends Command
 
         $this->info("Calculating bonus eligibility for {$month}/{$year}...");
 
-        $closedStatusIds = \App\Models\AtemStatus::whereIn('value', ['Completed', 'Completed with Excellence'])
+        $closedStatusIds = AtemStatus::whereIn('value', array('Completed', 'Completed with Excellence'))
             ->pluck('id');
+        $activeStatusId  = AtemStatus::where('value', 'Active')->value('id');
+        $extendStatusId  = AtemStatus::where('value', 'Extended')->value('id');
+        $failedStatusId  = AtemStatus::where('value', 'Failed')->value('id');
 
-        $atems = Atem::with(['arci', 'status'])
+        $aggregates = array();
+
+        // Completed ATEM: closure_date in month/year
+        $completedAtems = Atem::with(array('arci', 'status'))
             ->whereIn('atem_status_id', $closedStatusIds)
             ->whereNotNull('closure_date')
             ->whereMonth('closure_date', $month)
             ->whereYear('closure_date', $year)
             ->get();
 
-        if ($atems->isEmpty()) {
-            $this->info('No completed ATEMs found for this period.');
-            $this->applyEndOfMonthRemarks($month, $year);
-            return 0;
-        }
-
-        // Aggregate per staff_id: total_atem count, total_incentive, dept_id
-        $aggregates = array();
-
-        foreach ($atems as $atem) {
+        foreach ($completedAtems as $atem) {
             $rMembers = $atem->arci->where('role', 'R');
             $rCount   = $rMembers->count();
 
-            // Collect all involved staff for this ATEM: issuer + all ARCI roles
-            // Key: staff_id, value: ['dept_id', 'incentive']
             $involved = array();
 
-            // Issuer with 0 incentive (may be overridden below if also ARCI)
             if ($atem->issuer_staff_id) {
                 $involved[$atem->issuer_staff_id] = array(
                     'dept_id'   => $atem->staff_dept_id,
@@ -58,7 +54,6 @@ class CalculateBonusEligibility extends Command
                 );
             }
 
-            // ARCI members — ARCI entry wins over issuer-only entry
             foreach ($atem->arci as $member) {
                 $incentive = 0.0;
                 if ($member->role === 'A') {
@@ -67,23 +62,15 @@ class CalculateBonusEligibility extends Command
                     $incentive = (float) $atem->r_incentive_amount / $rCount;
                 }
 
-                // Override any existing entry for this staff_id (ARCI wins over issuer-only)
                 $involved[$member->staff_id] = array(
                     'dept_id'   => $member->staff_dept_id,
                     'incentive' => $incentive,
                 );
             }
 
-            // Merge into aggregates
             foreach ($involved as $staffId => $data) {
-                if (!isset($aggregates[$staffId])) {
-                    $aggregates[$staffId] = array(
-                        'dept_id'         => $data['dept_id'],
-                        'total_atem'      => 0,
-                        'total_incentive' => 0.0,
-                    );
-                }
-                $aggregates[$staffId]['total_atem']      += 1;
+                $this->ensureAggregate($aggregates, $staffId, $data['dept_id']);
+                $aggregates[$staffId]['complete_count']  += 1;
                 $aggregates[$staffId]['total_incentive'] += $data['incentive'];
                 if ($data['dept_id']) {
                     $aggregates[$staffId]['dept_id'] = $data['dept_id'];
@@ -91,9 +78,57 @@ class CalculateBonusEligibility extends Command
             }
         }
 
+        // Active ATEM: start_date in month/year
+        if ($activeStatusId) {
+            $activeAtems = Atem::with(array('arci'))
+                ->where('atem_status_id', $activeStatusId)
+                ->whereMonth('start_date', $month)
+                ->whereYear('start_date', $year)
+                ->get();
+
+            $this->applyStatusCount($aggregates, $activeAtems, 'active_count');
+        }
+
+        // Extended ATEM: start_date in month/year
+        if ($extendStatusId) {
+            $extendAtems = Atem::with(array('arci'))
+                ->where('atem_status_id', $extendStatusId)
+                ->whereMonth('start_date', $month)
+                ->whereYear('start_date', $year)
+                ->get();
+
+            $this->applyStatusCount($aggregates, $extendAtems, 'extend_count');
+        }
+
+        // Failed ATEM: start_date in month/year
+        if ($failedStatusId) {
+            $failedAtems = Atem::with(array('arci'))
+                ->where('atem_status_id', $failedStatusId)
+                ->whereMonth('start_date', $month)
+                ->whereYear('start_date', $year)
+                ->get();
+
+            $this->applyStatusCount($aggregates, $failedAtems, 'failed_count');
+        }
+
+        if (empty($aggregates)) {
+            $this->info('No ATEM found for this period.');
+            $this->applyEndOfMonthRemarks($month, $year);
+            return 0;
+        }
+
+        // Set total_atem as sum of all status counts
+        foreach ($aggregates as $staffId => &$data) {
+            $data['total_atem'] = $data['complete_count']
+                + $data['active_count']
+                + $data['extend_count']
+                + $data['failed_count'];
+        }
+        unset($data);
+
         // Fetch grade and struct IDs via ODB API
-        $staffIds  = array_keys($aggregates);
-        $odbStaff  = $staffApi->getStaffInfo($staffIds);
+        $staffIds = array_keys($aggregates);
+        $odbStaff = $staffApi->getStaffInfo($staffIds);
 
         // Upsert each staff record (do not overwrite remark)
         foreach ($aggregates as $staffId => $data) {
@@ -109,6 +144,10 @@ class CalculateBonusEligibility extends Command
                 'staff_grade'     => $staffInfo ? $staffInfo['grade']  : null,
                 'staff_struct'    => $staffInfo ? $staffInfo['struct'] : null,
                 'total_atem'      => $data['total_atem'],
+                'complete_count'  => $data['complete_count'],
+                'active_count'    => $data['active_count'],
+                'extend_count'    => $data['extend_count'],
+                'failed_count'    => $data['failed_count'],
                 'total_incentive' => round($data['total_incentive'], 2),
             );
 
@@ -128,6 +167,44 @@ class CalculateBonusEligibility extends Command
         $this->applyEndOfMonthRemarks($month, $year);
 
         return 0;
+    }
+
+    private function ensureAggregate(array &$aggregates, int $staffId, $deptId): void
+    {
+        if (!isset($aggregates[$staffId])) {
+            $aggregates[$staffId] = array(
+                'dept_id'         => $deptId,
+                'complete_count'  => 0,
+                'active_count'    => 0,
+                'extend_count'    => 0,
+                'failed_count'    => 0,
+                'total_atem'      => 0,
+                'total_incentive' => 0.0,
+            );
+        }
+    }
+
+    private function applyStatusCount(array &$aggregates, Collection $atems, string $field): void
+    {
+        foreach ($atems as $atem) {
+            $involved = array();
+
+            if ($atem->issuer_staff_id) {
+                $involved[$atem->issuer_staff_id] = $atem->staff_dept_id;
+            }
+
+            foreach ($atem->arci as $member) {
+                $involved[$member->staff_id] = $member->staff_dept_id;
+            }
+
+            foreach ($involved as $staffId => $deptId) {
+                $this->ensureAggregate($aggregates, $staffId, $deptId);
+                $aggregates[$staffId][$field] += 1;
+                if ($deptId) {
+                    $aggregates[$staffId]['dept_id'] = $deptId;
+                }
+            }
+        }
     }
 
     private function applyEndOfMonthRemarks(int $month, int $year): void

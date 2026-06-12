@@ -17,6 +17,10 @@ class AtemBonusEligibility extends Model
         'month',
         'year',
         'total_atem',
+        'complete_count',
+        'active_count',
+        'extend_count',
+        'failed_count',
         'total_incentive',
         'remark',
     ];
