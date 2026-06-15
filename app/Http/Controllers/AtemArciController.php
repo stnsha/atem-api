@@ -12,6 +12,20 @@ class AtemArciController extends Controller
 {
     private const ROLES = ['A', 'R', 'C', 'I'];
 
+    private function getRuleLimits(?string $ruleCode): array
+    {
+        $map = [
+            'rule 1' => ['maxA' => 2, 'maxR' => 0],
+            'rule 2' => ['maxA' => 1, 'maxR' => 0],
+            'rule 3' => ['maxA' => 1, 'maxR' => 2],
+            'rule 4' => ['maxA' => 2, 'maxR' => 2],
+            'rule 5' => ['maxA' => 1, 'maxR' => 1],
+            'rule 6' => ['maxA' => 2, 'maxR' => 1],
+        ];
+        $key = strtolower(trim((string) $ruleCode));
+        return $map[$key] ?? ['maxA' => 2, 'maxR' => 2];
+    }
+
     /**
      * POST /api/atem/{id}/arci
      */
@@ -27,22 +41,31 @@ class AtemArciController extends Controller
             'assigned_by'     => 'nullable|integer',
         ]);
 
+        $ruleCode = $atem->incentiveRule ? $atem->incentiveRule->code : null;
+        $limits   = $this->getRuleLimits($ruleCode);
+
         if ($data['role'] === 'A') {
             $countA = AtemArci::where('atem_id', $atem->id)->where('role', 'A')->count();
-            if ($countA >= 2) {
+            if ($countA >= $limits['maxA']) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Role A (Accountable) is limited to 2 members.',
+                    'message' => 'Role A (Accountable) is limited to ' . $limits['maxA'] . ' member(s) for this rule.',
                 ], 422);
             }
         }
 
         if ($data['role'] === 'R') {
-            $countR = AtemArci::where('atem_id', $atem->id)->where('role', 'R')->count();
-            if ($countR >= 2) {
+            if ($limits['maxR'] === 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Role R (Responsible) is limited to 2 members.',
+                    'message' => 'This rule does not include R (Responsible) incentive.',
+                ], 422);
+            }
+            $countR = AtemArci::where('atem_id', $atem->id)->where('role', 'R')->count();
+            if ($countR >= $limits['maxR']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Role R (Responsible) is limited to ' . $limits['maxR'] . ' member(s) for this rule.',
                 ], 422);
             }
         }
@@ -166,6 +189,23 @@ class AtemArciController extends Controller
         $data = $request->validate([
             'is_incentivised' => 'required|boolean',
         ]);
+
+        if ($data['is_incentivised']) {
+            $ruleCode = $atem->incentiveRule ? $atem->incentiveRule->code : null;
+            $limits   = $this->getRuleLimits($ruleCode);
+            $maxForRole = $member->role === 'A' ? $limits['maxA'] : $limits['maxR'];
+            $currentCount = AtemArci::where('atem_id', $atem->id)
+                ->where('role', $member->role)
+                ->where('id', '!=', $arci_id)
+                ->where('is_incentivised', true)
+                ->count();
+            if ($currentCount >= $maxForRole) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Max incentivised ' . $member->role . ' members (' . $maxForRole . ') already reached for this rule.',
+                ], 422);
+            }
+        }
 
         $member->update(['is_incentivised' => $data['is_incentivised']]);
 

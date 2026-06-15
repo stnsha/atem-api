@@ -10,9 +10,12 @@ use App\Models\LevelStructure;
  *
  * Rules (codes must match incentive_rules.code exactly, case-insensitive):
  *   Rule 1 — A1 50%, A2 50%: each incentivised A receives 50% of base (max 2 A).
- *   Rule 2 — Only A 100%: the one incentivised A receives 100% of base.
- *   Rule 3 — A 100%, R pooled 50%: incentivised A receives 100%; incentivised
- *             R members share a pool equal to 50% of base equally (max 2 R).
+ *   Rule 2 — Only A1 100%: the one incentivised A receives 100% of base.
+ *   Rule 3 — A1 100%, R pooled 50%: incentivised A receives 100%; incentivised
+ *             R members share a pool equal to 50% of base (max 1 A, max 2 R).
+ *   Rule 4 — A1 50%, A2 50%, R pooled 50%: each incentivised A gets 50%; R pool 50% (max 2 A, max 2 R).
+ *   Rule 5 — A1 100%, R1 100%: A receives 100%; R receives 100% (max 1 A, max 1 R).
+ *   Rule 6 — A1 50%, A2 50%, R1 100%: each A gets 50%; R receives 100% (max 2 A, max 1 R).
  *
  * C and I are never incentivised.
  * Claimable only when closed as Completed or Completed with Excellence and
@@ -46,17 +49,23 @@ class IncentiveCalculatorService
             $code = strtolower(trim($rule->code));
 
             if ($code === 'rule 1') {
-                // Each incentivised A receives 50% of base.
                 $a = $base * 0.5 * $incentivisedACount;
                 $r = 0.0;
             } elseif ($code === 'rule 2') {
-                // Each incentivised A receives 100% of base; no R payout.
                 $a = $base * $incentivisedACount;
                 $r = 0.0;
             } elseif ($code === 'rule 3') {
-                // Each incentivised A receives 100% of base; incentivised R members share a 50% pool.
                 $a = $base * $incentivisedACount;
                 $r = $incentivisedRCount > 0 ? $base * 0.5 : 0.0;
+            } elseif ($code === 'rule 4') {
+                $a = $base * 0.5 * $incentivisedACount;
+                $r = $incentivisedRCount > 0 ? $base * 0.5 : 0.0;
+            } elseif ($code === 'rule 5') {
+                $a = $base * $incentivisedACount;
+                $r = $base * $incentivisedRCount;
+            } elseif ($code === 'rule 6') {
+                $a = $base * 0.5 * $incentivisedACount;
+                $r = $base * $incentivisedRCount;
             }
         }
 
