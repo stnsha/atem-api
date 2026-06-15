@@ -41,6 +41,16 @@ class AtemBonusEligibilityController extends Controller
         return response()->json(array('data' => $record));
     }
 
+    public function progress(): JsonResponse
+    {
+        $path = storage_path('app/bonus_calc_progress.json');
+        if (!file_exists($path)) {
+            return response()->json(array('current' => 0, 'total' => 0, 'stage' => 'idle'));
+        }
+        $data = json_decode(file_get_contents($path), true);
+        return response()->json($data ?: array('current' => 0, 'total' => 0, 'stage' => 'unknown'));
+    }
+
     public function calculate(Request $request): JsonResponse
     {
         $month = $request->input('month', now()->month);

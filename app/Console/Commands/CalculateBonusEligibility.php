@@ -24,6 +24,7 @@ class CalculateBonusEligibility extends Command
         $year  = (int) ($this->option('year')  ?: Carbon::now()->year);
 
         $this->info("Calculating bonus eligibility for {$month}/{$year}...");
+        $this->writeProgress(0, 5, 'Starting...');
 
         $closedStatusIds = AtemStatus::whereIn('value', array('Completed', 'Completed with Excellence'))
             ->pluck('id');
@@ -34,6 +35,7 @@ class CalculateBonusEligibility extends Command
         $aggregates = array();
 
         // Completed ATEM: closure_date in month/year
+        $this->writeProgress(1, 5, 'Processing completed ATEMs');
         $completedAtems = Atem::with(array('arci', 'status'))
             ->whereIn('atem_status_id', $closedStatusIds)
             ->whereNotNull('closure_date')
@@ -79,6 +81,7 @@ class CalculateBonusEligibility extends Command
         }
 
         // Active ATEM: start_date in month/year
+        $this->writeProgress(2, 5, 'Processing active ATEMs');
         if ($activeStatusId) {
             $activeAtems = Atem::with(array('arci'))
                 ->where('atem_status_id', $activeStatusId)
@@ -90,6 +93,7 @@ class CalculateBonusEligibility extends Command
         }
 
         // Extended ATEM: start_date in month/year
+        $this->writeProgress(3, 5, 'Processing extended ATEMs');
         if ($extendStatusId) {
             $extendAtems = Atem::with(array('arci'))
                 ->where('atem_status_id', $extendStatusId)
@@ -101,6 +105,7 @@ class CalculateBonusEligibility extends Command
         }
 
         // Failed ATEM: start_date in month/year
+        $this->writeProgress(4, 5, 'Processing failed ATEMs');
         if ($failedStatusId) {
             $failedAtems = Atem::with(array('arci'))
                 ->where('atem_status_id', $failedStatusId)
@@ -125,6 +130,8 @@ class CalculateBonusEligibility extends Command
                 + $data['failed_count'];
         }
         unset($data);
+
+        $this->writeProgress(5, 5, 'Saving records');
 
         // Fetch grade and struct IDs via ODB API
         $staffIds = array_keys($aggregates);
@@ -167,6 +174,16 @@ class CalculateBonusEligibility extends Command
         $this->applyEndOfMonthRemarks($month, $year);
 
         return 0;
+    }
+
+    private function writeProgress(int $current, int $total, string $stage): void
+    {
+        $path = storage_path('app/bonus_calc_progress.json');
+        file_put_contents($path, json_encode(array(
+            'current' => $current,
+            'total'   => $total,
+            'stage'   => $stage,
+        )));
     }
 
     private function ensureAggregate(array &$aggregates, int $staffId, $deptId): void
