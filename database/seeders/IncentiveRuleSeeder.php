@@ -31,12 +31,12 @@ class IncentiveRuleSeeder extends Seeder
         ],
         [
             'code' => 'Rule 5',
-            'system_label' => 'A1 100%, R1 100% incentivised.',
-            'payout_logic' => 'A1 receives 100% of base incentive. R1 receives 100% of base incentive.',
+            'system_label' => 'A1 100%, R1 50% incentivised.',
+            'payout_logic' => 'A1 receives 100% of base incentive. R1 receives 50% of base incentive.',
         ],[
             'code' => 'Rule 6',
-            'system_label' => 'A1 50%, A2 50%, R1 100% incentivised.',
-            'payout_logic' => 'A1 receives 50% of base incentive. A2 receives 50% of base incentive. R1 receives 100% of base incentive.',
+            'system_label' => 'A1 50%, A2 50%, R1 50% incentivised.',
+            'payout_logic' => 'A1 receives 50% of base incentive. A2 receives 50% of base incentive. R1 receives 50% of base incentive.',
         ],
     ];
     /**
