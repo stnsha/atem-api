@@ -41,35 +41,6 @@ class AtemArciController extends Controller
             'assigned_by'     => 'nullable|integer',
         ]);
 
-        $ruleCode = $atem->incentiveRule ? $atem->incentiveRule->code : null;
-        $limits   = $this->getRuleLimits($ruleCode);
-
-        if ($data['role'] === 'A') {
-            $countA = AtemArci::where('atem_id', $atem->id)->where('role', 'A')->count();
-            if ($countA >= $limits['maxA']) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Role A (Accountable) is limited to ' . $limits['maxA'] . ' member(s) for this rule.',
-                ], 422);
-            }
-        }
-
-        if ($data['role'] === 'R') {
-            if ($limits['maxR'] === 0) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This rule does not include R (Responsible) incentive.',
-                ], 422);
-            }
-            $countR = AtemArci::where('atem_id', $atem->id)->where('role', 'R')->count();
-            if ($countR >= $limits['maxR']) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Role R (Responsible) is limited to ' . $limits['maxR'] . ' member(s) for this rule.',
-                ], 422);
-            }
-        }
-
         $existing = AtemArci::withTrashed()
             ->where('atem_id', $atem->id)
             ->where('staff_id', $data['staff_id'])
