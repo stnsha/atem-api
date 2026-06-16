@@ -67,9 +67,7 @@ Route::middleware('auth:api')->group(function () {
 
     // Bonus eligibility
     Route::get('/bonus-eligibility',             [AtemBonusEligibilityController::class, 'index']);
-    Route::get('/bonus-eligibility/progress',    [AtemBonusEligibilityController::class, 'progress']);
     Route::put('/bonus-eligibility/{id}',        [AtemBonusEligibilityController::class, 'update'])->whereNumber('id');
-    Route::post('/bonus-eligibility/calculate',  [AtemBonusEligibilityController::class, 'calculate']);
 
     // ATEM attachments
     Route::get('/atem/{id}/attachments',                    [AtemAttachmentController::class, 'index'])->whereNumber('id');

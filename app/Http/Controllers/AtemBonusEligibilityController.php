@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\AtemBonusEligibility;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Artisan;
 
 class AtemBonusEligibilityController extends Controller
 {
@@ -41,33 +40,4 @@ class AtemBonusEligibilityController extends Controller
         return response()->json(array('data' => $record));
     }
 
-    public function progress(): JsonResponse
-    {
-        $path = storage_path('app/bonus_calc_progress.json');
-        if (!file_exists($path)) {
-            return response()->json(array('current' => 0, 'total' => 0, 'stage' => 'idle'));
-        }
-        $data = json_decode(file_get_contents($path), true);
-        return response()->json($data ?: array('current' => 0, 'total' => 0, 'stage' => 'unknown'));
-    }
-
-    public function calculate(Request $request): JsonResponse
-    {
-        $month = $request->input('month', now()->month);
-        $year  = $request->input('year', now()->year);
-
-        Artisan::call('atem:calculate-bonus', array(
-            '--month' => (int) $month,
-            '--year'  => (int) $year,
-        ));
-
-        $output = Artisan::output();
-
-        return response()->json(array(
-            'message' => 'Calculation complete.',
-            'output'  => trim($output),
-            'month'   => (int) $month,
-            'year'    => (int) $year,
-        ));
-    }
 }

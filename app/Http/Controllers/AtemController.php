@@ -7,8 +7,10 @@ use App\Models\AtemStatus;
 use App\Models\IncentiveRule;
 use App\Models\LevelStructure;
 use App\Services\IncentiveCalculatorService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 
 class AtemController extends Controller
@@ -37,6 +39,28 @@ class AtemController extends Controller
     }
 
     private const ALLOWED_ATTACHMENT_EXT = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt'];
+
+    private function recalcBonusEligibility(Atem $atem): void
+    {
+        $months = array();
+
+        if ($atem->start_date) {
+            $sd = Carbon::parse($atem->start_date);
+            $months[$sd->year . '-' . $sd->month] = array('month' => $sd->month, 'year' => $sd->year);
+        }
+
+        if ($atem->closure_date) {
+            $cd = Carbon::parse($atem->closure_date);
+            $months[$cd->year . '-' . $cd->month] = array('month' => $cd->month, 'year' => $cd->year);
+        }
+
+        foreach ($months as $entry) {
+            Artisan::call('atem:calculate-bonus', array(
+                '--month' => $entry['month'],
+                '--year'  => $entry['year'],
+            ));
+        }
+    }
 
     /**
      * POST /api/atem
@@ -164,6 +188,8 @@ class AtemController extends Controller
 
             return $atem;
         });
+
+        $this->recalcBonusEligibility($atem);
 
         return response()->json([
             'success' => true,
@@ -330,6 +356,8 @@ class AtemController extends Controller
         ]);
 
         $atem->save();
+
+        $this->recalcBonusEligibility($atem);
 
         return response()->json([
             'success' => true,
