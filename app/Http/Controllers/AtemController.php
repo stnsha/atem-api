@@ -98,6 +98,13 @@ class AtemController extends Controller
             'attachments.*.size'     => 'nullable|integer',
         ]);
 
+        if (($data['mode'] ?? 'final') === 'final' && empty($data['reference_links'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'At least one Reference Link is required.',
+            ], 422);
+        }
+
         // Attachments are validated by extension. Content-sniffing (Laravel's
         // mimes rule) wrongly rejects valid zip-based Office files (docx/xlsx).
         if (!empty($data['attachments'])) {
