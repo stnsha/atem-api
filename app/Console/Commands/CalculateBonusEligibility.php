@@ -44,8 +44,8 @@ class CalculateBonusEligibility extends Command
             ->get();
 
         foreach ($completedAtems as $atem) {
-            $rMembers = $atem->arci->where('role', 'R');
-            $rCount   = $rMembers->count();
+            $incACount = $atem->arci->where('role', 'A')->where('is_incentivised', true)->count();
+            $incRCount = $atem->arci->where('role', 'R')->where('is_incentivised', true)->count();
 
             $involved = array();
 
@@ -58,10 +58,10 @@ class CalculateBonusEligibility extends Command
 
             foreach ($atem->arci as $member) {
                 $incentive = 0.0;
-                if ($member->role === 'A') {
-                    $incentive = (float) $atem->a_incentive_amount;
-                } elseif ($member->role === 'R' && $rCount > 0) {
-                    $incentive = (float) $atem->r_incentive_amount / $rCount;
+                if ($member->role === 'A' && $member->is_incentivised && $incACount > 0) {
+                    $incentive = (float) $atem->a_incentive_amount / $incACount;
+                } elseif ($member->role === 'R' && $member->is_incentivised && $incRCount > 0) {
+                    $incentive = (float) $atem->r_incentive_amount / $incRCount;
                 }
 
                 $involved[$member->staff_id] = array(
