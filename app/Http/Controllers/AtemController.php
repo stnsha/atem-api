@@ -423,12 +423,15 @@ class AtemController extends Controller
             ], 422);
         }
 
-        $deletedStatus = AtemStatus::where('value', 'Deleted')->first();
+        $deletedStatusId = DB::table('atem_statuses')
+            ->where('value', 'Deleted')
+            ->whereNull('deleted_at')
+            ->value('id');
 
         $atem->remarks        = $remarks;
         $atem->closed_by      = $actorId;
-        if ($deletedStatus) {
-            $atem->atem_status_id = $deletedStatus->id;
+        if ($deletedStatusId) {
+            $atem->atem_status_id = (int) $deletedStatusId;
         }
         $atem->save();
 
