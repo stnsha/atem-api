@@ -290,13 +290,13 @@ class AtemController extends Controller
             $finalDue = $ext1;
         }
 
-        // Once an extension date has been recorded, only Extended or Failed statuses are valid.
+        // Once an extension date has been recorded, only Completed, Extended, or Failed statuses are valid.
         if ($atem->is_extended && $atem->extended_date_1) {
             $newStatus = AtemStatus::find($data['atem_status_id'] ?? null);
-            if ($newStatus && !in_array($newStatus->value, ['Extended', 'Failed'], true)) {
+            if ($newStatus && !in_array($newStatus->value, ['Completed', 'Extended', 'Failed'], true)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Status cannot be changed to "' . $newStatus->value . '" once an extension date has been recorded. Only Extended or Failed are permitted.',
+                    'message' => 'Status cannot be changed to "' . $newStatus->value . '" once an extension date has been recorded. Only Completed, Extended, or Failed are permitted.',
                 ], 422);
             }
         }
