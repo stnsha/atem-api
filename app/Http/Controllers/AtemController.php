@@ -211,18 +211,30 @@ class AtemController extends Controller
      * Lists all ATEM cards (newest first) for the listing page. FK ids only -
      * issuer/department names are resolved on the odb frontend.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $atems = Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci'])
-            ->orderByDesc('id')
-            ->get([
-                'id', 'title', 'issuer_staff_id', 'staff_dept_id',
-                'level_structure_id', 'incentive_rule_id', 'atem_status_id',
-                'start_date', 'end_date', 'extended_date_1', 'final_due_date',
-                'is_extended', 'extension_count',
-                'a_incentive_amount', 'r_incentive_amount', 'total_incentive_amount',
-                'claimable', 'created_at',
-            ]);
+        $query = Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci'])
+            ->orderByDesc('id');
+
+        $staffId = $request->query('staff_id');
+        if ($staffId) {
+            $staffId = (int) $staffId;
+            $query->where(function ($q) use ($staffId) {
+                $q->where('issuer_staff_id', $staffId)
+                  ->orWhereHas('arci', function ($q2) use ($staffId) {
+                      $q2->where('staff_id', $staffId);
+                  });
+            });
+        }
+
+        $atems = $query->get([
+            'id', 'title', 'issuer_staff_id', 'staff_dept_id',
+            'level_structure_id', 'incentive_rule_id', 'atem_status_id',
+            'start_date', 'end_date', 'extended_date_1', 'final_due_date',
+            'is_extended', 'extension_count',
+            'a_incentive_amount', 'r_incentive_amount', 'total_incentive_amount',
+            'claimable', 'created_at',
+        ]);
 
         return response()->json([
             'success' => true,
