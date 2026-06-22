@@ -6,6 +6,7 @@ use App\Models\Atem;
 use App\Models\AtemStatus;
 use App\Models\IncentiveRule;
 use App\Models\LevelStructure;
+use App\Services\AtemAuditLogger;
 use App\Services\IncentiveCalculatorService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -213,8 +214,13 @@ class AtemController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci'])
-            ->orderByDesc('id');
+        $includeDeleted = $request->query('include_deleted') == 1;
+
+        $builder = $includeDeleted
+            ? Atem::withTrashed()->with(['levelStructure', 'incentiveRule', 'status', 'arci'])
+            : Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci']);
+
+        $query = $builder->orderByDesc('id');
 
         $staffId = $request->query('staff_id');
         if ($staffId) {
@@ -233,7 +239,7 @@ class AtemController extends Controller
             'start_date', 'end_date', 'extended_date_1', 'final_due_date',
             'is_extended', 'extension_count',
             'a_incentive_amount', 'r_incentive_amount', 'total_incentive_amount',
-            'claimable', 'created_at',
+            'claimable', 'created_at', 'deleted_at',
         ]);
 
         return response()->json([
@@ -247,7 +253,7 @@ class AtemController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $atem = Atem::with([
+        $atem = Atem::withTrashed()->with([
             'arci',
             'referenceLinks',
             'attachments',
@@ -386,16 +392,18 @@ class AtemController extends Controller
 
     /**
      * DELETE /api/atem/{id}
-     * Permanently deletes a Draft ATEM. Only the Issuer may delete.
+     * Soft-deletes a Draft or Active ATEM. Only the Issuer may delete.
+     * Terminal statuses (Completed, Completed with Excellence, Failed) are permanently locked.
      */
     public function destroy(int $id, Request $request): JsonResponse
     {
         $atem = Atem::with('status')->findOrFail($id);
 
-        if (!$atem->status || $atem->status->value !== 'Draft') {
+        $terminalStatuses = ['Completed', 'Completed with Excellence', 'Failed'];
+        if ($atem->status && in_array($atem->status->value, $terminalStatuses, true)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Only Draft ATEMs can be deleted.',
+                'message' => 'Completed and Failed ATEMs cannot be deleted.',
             ], 403);
         }
 
@@ -407,11 +415,30 @@ class AtemController extends Controller
             ], 403);
         }
 
-        $atem->arci()->delete();
-        $atem->referenceLinks()->delete();
-        $atem->attachments()->delete();
-        $atem->progress()->delete();
-        $atem->auditLogs()->delete();
+        $remarks = trim((string) $request->input('remarks', ''));
+        if ($remarks === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'A remark is required when deleting an ATEM card.',
+            ], 422);
+        }
+
+        $deletedStatus = AtemStatus::where('value', 'Deleted')->first();
+
+        $atem->remarks        = $remarks;
+        $atem->closed_by      = $actorId;
+        if ($deletedStatus) {
+            $atem->atem_status_id = $deletedStatus->id;
+        }
+        $atem->save();
+
+        AtemAuditLogger::log(
+            $atem->id,
+            'deleted',
+            $actorId,
+            'Card deleted by staff #' . $actorId . '. Remark: ' . $remarks
+        );
+
         $atem->delete();
 
         return response()->json(['success' => true]);
