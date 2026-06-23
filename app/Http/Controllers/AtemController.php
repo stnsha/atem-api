@@ -325,7 +325,10 @@ class AtemController extends Controller
         $closedBy = $atem->closed_by;
         if ($statusValue !== null && in_array($statusValue, $closingStatuses, true)) {
             $closureDate = $atem->closure_date ?: now()->toDateString();
-            $closedBy = $data['updated_by'] ?? $closedBy;
+            // Only record closed_by on the first transition into a terminal status.
+            if ($closedBy === null) {
+                $closedBy = $data['updated_by'] ?? null;
+            }
         } elseif ($isExtended && $ext1) {
             // Extended closure date equals the extension date.
             $closureDate = $ext1;
