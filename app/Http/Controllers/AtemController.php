@@ -288,8 +288,9 @@ class AtemController extends Controller
             'atem_status_id'     => 'nullable|integer|exists:atem_statuses,id',
             'remarks'            => 'nullable|string',
             'updated_by'         => 'nullable|integer',
-            'incentive_approved' => 'boolean',
-            'finalize'           => 'boolean',
+            'incentive_approved'  => 'boolean',
+            'finalize'            => 'boolean',
+            'superadmin_override' => 'nullable|boolean',
         ]);
 
         $level  = !empty($data['level_structure_id']) ? LevelStructure::find($data['level_structure_id']) : null;
@@ -309,7 +310,8 @@ class AtemController extends Controller
         }
 
         // Once an extension date has been recorded, only Completed, Extended, or Failed statuses are valid.
-        if ($atem->is_extended && $atem->extended_date_1) {
+        // SuperAdmin may bypass this restriction (e.g. to revert a completed extended card to Draft).
+        if ($atem->is_extended && $atem->extended_date_1 && empty($data['superadmin_override'])) {
             $newStatus = AtemStatus::find($data['atem_status_id'] ?? null);
             if ($newStatus && !in_array($newStatus->value, ['Completed', 'Extended', 'Failed'], true)) {
                 return response()->json([
@@ -323,6 +325,10 @@ class AtemController extends Controller
         // not the Final Due Date. Preserve it if already set on a re-save.
         $closingStatuses = ['Completed', 'Completed with Excellence', 'Failed'];
         $closedBy = $atem->closed_by;
+        // SuperAdmin reverting a terminal card to Draft clears closure tracking.
+        if (!empty($data['superadmin_override']) && $statusValue === 'Draft') {
+            $closedBy = null;
+        }
         if ($statusValue !== null && in_array($statusValue, $closingStatuses, true)) {
             $closureDate = $atem->closure_date ?: now()->toDateString();
             // Only record closed_by on the first transition into a terminal status.
