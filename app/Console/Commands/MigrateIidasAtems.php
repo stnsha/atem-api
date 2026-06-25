@@ -4,14 +4,17 @@ namespace App\Console\Commands;
 
 use App\Services\IidasMigrationService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Carbon;
 
 class MigrateIidasAtems extends Command
 {
     protected $signature = 'iidas:migrate-atems
                             {--per-page=50 : ATEMs fetched per batch}
-                            {--dry-run     : Preview counts without writing to the database}';
+                            {--dry-run     : Preview counts without writing to the database}
+                            {--preview     : Populate iidas_migration_preview for review without writing to atems}';
 
     protected $description = 'Migrate ATEM data from IIDAS (ODB) into atem_local via the ODB API';
 
@@ -21,6 +24,12 @@ class MigrateIidasAtems extends Command
     {
         $perPage = max(1, (int) $this->option('per-page'));
         $dryRun  = (bool) $this->option('dry-run');
+        $preview = (bool) $this->option('preview');
+
+        if ($preview && $dryRun) {
+            $this->error('--preview and --dry-run cannot be used together.');
+            return Command::FAILURE;
+        }
 
         if ($dryRun) {
             $this->info('[dry-run] No changes will be written to the database.');
@@ -36,11 +45,18 @@ class MigrateIidasAtems extends Command
             2 => (int) ($statusRows['Completed'] ?? 3),
         ];
 
+        $statusLabelMap = [0 => 'Draft', 1 => 'Active', 2 => 'Completed'];
+
         $deletedStatusId = (int) ($statusRows['Deleted'] ?? 0);
 
         if ($deletedStatusId === 0) {
             $this->error('Deleted status not found in atem_statuses. Run migrations first.');
             return Command::FAILURE;
+        }
+
+        if ($preview) {
+            $this->ensurePreviewTable();
+            $this->info('Populating iidas_migration_preview table...');
         }
 
         $counters = [
@@ -76,7 +92,11 @@ class MigrateIidasAtems extends Command
 
             foreach ($atems as $atem) {
                 try {
-                    $this->processAtem($atem, $picsMap, $subMap, $refMap, $attMap, $dryRun, $counters, $statusMap, $deletedStatusId);
+                    if ($preview) {
+                        $this->previewAtem($atem, $picsMap, $subMap, $refMap, $attMap, $statusLabelMap, $counters);
+                    } else {
+                        $this->processAtem($atem, $picsMap, $subMap, $refMap, $attMap, $dryRun, $counters, $statusMap, $deletedStatusId);
+                    }
                 } catch (\Throwable $e) {
                     $counters['skipped']++;
                     $this->warn("ATEM #{$atem['id']} skipped: " . $e->getMessage());
@@ -87,21 +107,112 @@ class MigrateIidasAtems extends Command
             $page++;
         }
 
-        $this->table(
-            ['Metric', 'Count'],
+        if ($preview) {
+            $summaryRows = DB::table('iidas_migration_preview')
+                ->selectRaw('mapped_status, COUNT(*) as total, SUM(would_soft_delete) as will_delete, SUM(CASE WHEN committed_at IS NOT NULL THEN 1 ELSE 0 END) as already_committed')
+                ->groupBy('mapped_status')
+                ->orderBy('mapped_status')
+                ->get();
+
+            $tableRows = [];
+            foreach ($summaryRows as $row) {
+                $tableRows[] = [$row->mapped_status, $row->total, $row->will_delete, $row->already_committed];
+            }
+
+            $this->table(['Status', 'Total', 'Will Soft-Delete', 'Already Committed'], $tableRows);
+            $this->info('Preview ready. Visit /odb/atem/migration_preview.php to review.');
+        } else {
+            $this->table(
+                ['Metric', 'Count'],
+                [
+                    ['ATEMs migrated',   $counters['atems']],
+                    ['Soft-deleted',     $counters['soft_deleted']],
+                    ['ARCI rows',        $counters['arci']],
+                    ['Progress entries', $counters['progress']],
+                    ['Reference links',  $counters['refs']],
+                    ['Attachments',      $counters['attachments']],
+                    ['Skipped (errors)', $counters['skipped']],
+                    ['Warnings',         $counters['warnings']],
+                ]
+            );
+        }
+
+        return Command::SUCCESS;
+    }
+
+    private function ensurePreviewTable(): void
+    {
+        if (Schema::hasTable('iidas_migration_preview')) {
+            return;
+        }
+
+        Schema::create('iidas_migration_preview', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedInteger('source_id')->unique();
+            $table->string('title', 255);
+            $table->string('mapped_status', 50);
+            $table->unsignedBigInteger('issuer_staff_id')->nullable();
+            $table->unsignedBigInteger('staff_dept_id')->nullable();
+            $table->date('start_date')->nullable();
+            $table->date('end_date')->nullable();
+            $table->tinyInteger('would_soft_delete')->default(0);
+            $table->unsignedInteger('arci_count')->default(0);
+            $table->unsignedInteger('subtask_count')->default(0);
+            $table->unsignedInteger('ref_count')->default(0);
+            $table->unsignedInteger('attachment_count')->default(0);
+            $table->timestamp('previewed_at')->useCurrent();
+            $table->timestamp('committed_at')->nullable();
+        });
+    }
+
+    private function previewAtem(
+        array $atem,
+        array $picsMap,
+        array $subMap,
+        array $refMap,
+        array $attMap,
+        array $statusLabelMap,
+        array &$counters
+    ): void {
+        $atemId     = (int) $atem['id'];
+        $isRecycled = ((int) $atem['recycle'] === 1);
+
+        $fullText  = $atem['action_details'] ?? '';
+        $firstLine = trim(strtok($fullText, "\n\r"));
+        $title     = mb_substr($firstLine !== '' ? $firstLine : $fullText, 0, 255);
+
+        $mappedStatus = $isRecycled
+            ? 'Deleted'
+            : ($statusLabelMap[(int) $atem['status']] ?? 'Draft');
+
+        $refCount = count($refMap[$atemId] ?? []);
+        if ((int) $atem['allow_view_project'] === 1 && (int) $atem['project_id'] > 0) {
+            $refCount++;
+        }
+
+        // updateOrInsert preserves committed_at on existing rows since it is not in the values array
+        DB::table('iidas_migration_preview')->updateOrInsert(
+            ['source_id' => $atemId],
             [
-                ['ATEMs migrated',   $counters['atems']],
-                ['Soft-deleted',     $counters['soft_deleted']],
-                ['ARCI rows',        $counters['arci']],
-                ['Progress entries', $counters['progress']],
-                ['Reference links',  $counters['refs']],
-                ['Attachments',      $counters['attachments']],
-                ['Skipped (errors)', $counters['skipped']],
-                ['Warnings',         $counters['warnings']],
+                'title'             => $title,
+                'mapped_status'     => $mappedStatus,
+                'issuer_staff_id'   => (int) $atem['created_by'],
+                'staff_dept_id'     => !empty($atem['department_id']) ? (int) $atem['department_id'] : null,
+                'start_date'        => $atem['start_date'] ?: null,
+                'end_date'          => $atem['end_date']   ?: null,
+                'would_soft_delete' => $isRecycled ? 1 : 0,
+                'arci_count'        => 1 + count($picsMap[$atemId] ?? []),
+                'subtask_count'     => count($subMap[$atemId] ?? []),
+                'ref_count'         => $refCount,
+                'attachment_count'  => count($attMap[$atemId] ?? []),
+                'previewed_at'      => Carbon::now()->toDateTimeString(),
             ]
         );
 
-        return Command::SUCCESS;
+        $counters['atems']++;
+        if ($isRecycled) {
+            $counters['soft_deleted']++;
+        }
     }
 
     private function processAtem(
@@ -169,6 +280,11 @@ class MigrateIidasAtems extends Command
                 'updated_at'         => $now,
                 'deleted_at'         => $deletedAt,
             ]);
+
+            DB::table('iidas_migration_preview')
+                ->where('source_id', $atemId)
+                ->whereNull('committed_at')
+                ->update(['committed_at' => $now]);
         }
 
         $counters['atems']++;
