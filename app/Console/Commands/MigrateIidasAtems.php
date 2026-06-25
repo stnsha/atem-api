@@ -15,10 +15,6 @@ class MigrateIidasAtems extends Command
 
     protected $description = 'Migrate ATEM data from IIDAS (ODB) into atem_local via the ODB API';
 
-    // IIDAS task.status → atem_status_id
-    // 0 = pending → 1 (Draft), 1 = in progress → 2 (Active), 2 = complete → 3 (Completed)
-    private array $statusMap = [0 => 1, 1 => 2, 2 => 3];
-
     private string $iidasBaseUrl = 'http://octopusdb.info:8080/odb/iidas';
 
     public function handle(IidasMigrationService $iidas): int
@@ -28,6 +24,23 @@ class MigrateIidasAtems extends Command
 
         if ($dryRun) {
             $this->info('[dry-run] No changes will be written to the database.');
+        }
+
+        $statusRows = DB::table('atem_statuses')
+            ->whereNull('deleted_at')
+            ->pluck('id', 'value');
+
+        $statusMap = [
+            0 => (int) ($statusRows['Draft']     ?? 1),
+            1 => (int) ($statusRows['Active']    ?? 2),
+            2 => (int) ($statusRows['Completed'] ?? 3),
+        ];
+
+        $deletedStatusId = (int) ($statusRows['Deleted'] ?? 0);
+
+        if ($deletedStatusId === 0) {
+            $this->error('Deleted status not found in atem_statuses. Run migrations first.');
+            return Command::FAILURE;
         }
 
         $counters = [
@@ -63,7 +76,7 @@ class MigrateIidasAtems extends Command
 
             foreach ($atems as $atem) {
                 try {
-                    $this->processAtem($atem, $picsMap, $subMap, $refMap, $attMap, $dryRun, $counters);
+                    $this->processAtem($atem, $picsMap, $subMap, $refMap, $attMap, $dryRun, $counters, $statusMap, $deletedStatusId);
                 } catch (\Throwable $e) {
                     $counters['skipped']++;
                     $this->warn("ATEM #{$atem['id']} skipped: " . $e->getMessage());
@@ -98,20 +111,40 @@ class MigrateIidasAtems extends Command
         array $refMap,
         array $attMap,
         bool  $dryRun,
-        array &$counters
+        array &$counters,
+        array $statusMap,
+        int   $deletedStatusId
     ): void {
-        $atemId    = (int) $atem['id'];
-        $createdBy = (int) $atem['created_by'];
-        $statusId  = $this->statusMap[(int) $atem['status']] ?? 1;
-        $now       = Carbon::now()->toDateTimeString();
-        $deletedAt = ((int) $atem['recycle'] === 1) ? $now : null;
+        $atemId     = (int) $atem['id'];
+        $createdBy  = (int) $atem['created_by'];
+        $isRecycled = ((int) $atem['recycle'] === 1);
+        $now        = Carbon::now()->toDateTimeString();
+        $today      = Carbon::today()->toDateString();
+        $deletedAt  = $isRecycled ? $now : null;
 
-        $fullText   = $atem['action_details'] ?? '';
-        $firstLine  = trim(strtok($fullText, "\n\r"));
-        $title      = mb_substr($firstLine !== '' ? $firstLine : $fullText, 0, 255);
-        $startDate  = $atem['start_date'] ?: null;
-        $endDate    = $atem['end_date']   ?: null;
-        $deptId     = !empty($atem['department_id']) ? (int) $atem['department_id'] : null;
+        $fullText  = $atem['action_details'] ?? '';
+        $firstLine = trim(strtok($fullText, "\n\r"));
+        $title     = mb_substr($firstLine !== '' ? $firstLine : $fullText, 0, 255);
+        $startDate = $atem['start_date'] ?: null;
+        $endDate   = $atem['end_date']   ?: null;
+        $deptId    = !empty($atem['department_id']) ? (int) $atem['department_id'] : null;
+
+        if ($isRecycled) {
+            $statusId    = $deletedStatusId;
+            $closureDate = $today;
+            $closedBy    = $createdBy;
+            $remarks     = 'Migrated from IIDAS (record was deleted in source system)';
+        } elseif ((int) $atem['status'] === 2) {
+            $statusId    = $statusMap[2];
+            $closureDate = $endDate ?: $today;
+            $closedBy    = $createdBy;
+            $remarks     = null;
+        } else {
+            $statusId    = $statusMap[(int) $atem['status']] ?? $statusMap[0];
+            $closureDate = null;
+            $closedBy    = null;
+            $remarks     = null;
+        }
 
         $newAtemId = 0;
 
@@ -127,7 +160,10 @@ class MigrateIidasAtems extends Command
                 'start_date'         => $startDate,
                 'end_date'           => $endDate,
                 'final_due_date'     => $endDate,
+                'closure_date'       => $closureDate,
                 'atem_status_id'     => $statusId,
+                'remarks'            => $remarks,
+                'closed_by'          => $closedBy,
                 'created_by'         => $createdBy,
                 'created_at'         => $atem['created_at'],
                 'updated_at'         => $now,

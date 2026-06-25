@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use Exception;
+use RuntimeException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
@@ -40,7 +40,7 @@ class OctopusApiService
      * @param string $endpoint API endpoint path
      * @param array $data Request data
      * @return array Decoded JSON response
-     * @throws Exception
+     * @throws RuntimeException
      */
     protected function callAPI(string $method, string $endpoint, array $data): array
     {
@@ -88,7 +88,7 @@ class OctopusApiService
                     'response_body' => substr($body, 0, 500),
                 ]);
 
-                throw new Exception("API request failed with status {$httpCode}: " . substr($body, 0, 200));
+                throw new RuntimeException("API request failed with status {$httpCode}: " . substr($body, 0, 200));
             }
 
             $result = $response->json();
@@ -98,7 +98,7 @@ class OctopusApiService
                     'response' => substr($body, 0, 500),
                 ]);
 
-                throw new Exception('Invalid JSON response from ODB API');
+                throw new RuntimeException('Invalid JSON response from ODB API');
             }
 
             return $result ?? [];
@@ -110,7 +110,7 @@ class OctopusApiService
                 'error_message' => $e->getMessage(),
             ]);
 
-            throw new Exception("Connection Failure: " . $e->getMessage(), 0, $e);
+            throw new RuntimeException("Connection Failure: " . $e->getMessage(), 0, $e);
 
         } catch (RequestException $e) {
             Log::error('OctopusApiService: Request Exception', [
@@ -120,7 +120,7 @@ class OctopusApiService
                 'http_code' => $e->response ? $e->response->status() : null,
             ]);
 
-            throw new Exception("Request failed: " . $e->getMessage(), 0, $e);
+            throw new RuntimeException("Request failed: " . $e->getMessage(), 0, $e);
         }
     }
 

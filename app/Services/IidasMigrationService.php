@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use Exception;
+use RuntimeException;
 use Illuminate\Support\Facades\Log;
 
 class IidasMigrationService extends OctopusApiService
@@ -29,7 +29,7 @@ class IidasMigrationService extends OctopusApiService
                 'pages' => isset($result['pages']) ? (int) $result['pages'] : 1,
             );
 
-        } catch (Exception $e) {
+        } catch (RuntimeException $e) {
             Log::warning('IidasMigrationService: getAtems failed', array(
                 'error' => $e->getMessage(),
                 'page'  => $page,
@@ -67,7 +67,7 @@ class IidasMigrationService extends OctopusApiService
                 'attachments' => isset($result['attachments']) ? $result['attachments'] : array(),
             );
 
-        } catch (Exception $e) {
+        } catch (RuntimeException $e) {
             Log::warning('IidasMigrationService: getAtemRelations failed', array(
                 'error' => $e->getMessage(),
                 'ids'   => $ids,
