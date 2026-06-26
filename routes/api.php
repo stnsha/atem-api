@@ -48,6 +48,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('/atem/{id}',    [AtemController::class, 'show'])->whereNumber('id');
     Route::put('/atem/{id}',    [AtemController::class, 'update'])->whereNumber('id');
     Route::delete('/atem/{id}', [AtemController::class, 'destroy'])->whereNumber('id');
+    Route::post('/atem/{id}/suspend', [AtemController::class, 'suspend'])->whereNumber('id');
 
     // ATEM ARCI members
     Route::post('/atem/{id}/arci',                          [AtemArciController::class, 'store'])->whereNumber('id');

@@ -455,4 +455,65 @@ class AtemController extends Controller
 
         return response()->json(['success' => true]);
     }
+
+    /**
+     * Suspend an ATEM card. Allowed by grade 4/5/SuperAdmin only (enforced on frontend).
+     * Sets status to Suspended, resets incentive amounts, soft-deletes the record.
+     */
+    public function suspend(int $id, Request $request): JsonResponse
+    {
+        $atem = Atem::with('status')->findOrFail($id);
+
+        if ($atem->deleted_at) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This ATEM card has already been suspended or deleted.',
+            ], 403);
+        }
+
+        $actorId = (int) $request->input('actor_id', 0);
+        if ($actorId === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Actor ID is required.',
+            ], 422);
+        }
+
+        $remarks = trim((string) $request->input('remarks', ''));
+        if ($remarks === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'A remark is required when suspending an ATEM card.',
+            ], 422);
+        }
+
+        $suspendedStatusId = DB::table('atem_statuses')
+            ->where('value', 'Suspended')
+            ->whereNull('deleted_at')
+            ->value('id');
+
+        $atem->atem_status_id         = (int) $suspendedStatusId;
+        $atem->suspended_by           = $actorId;
+        $atem->closed_by              = $actorId;
+        $atem->remarks                = $remarks;
+        $atem->closure_date           = now()->toDateString();
+        $atem->a_incentive_amount     = 0.0;
+        $atem->r_incentive_amount     = 0.0;
+        $atem->total_incentive_amount = 0.0;
+        $atem->final_incentive_amount = 0.0;
+        $atem->claimable              = false;
+        $atem->incentive_approved     = false;
+        $atem->save();
+
+        AtemAuditLogger::log(
+            $atem->id,
+            'suspended',
+            $actorId,
+            'Card suspended by staff #' . $actorId . '. Remark: ' . $remarks
+        );
+
+        $atem->delete();
+
+        return response()->json(['success' => true]);
+    }
 }

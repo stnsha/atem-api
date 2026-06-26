@@ -40,6 +40,7 @@ class Atem extends Model
         'created_by',
         'updated_by',
         'closed_by',
+        'suspended_by',
     ];
 
     protected $casts = [
