@@ -45,6 +45,18 @@ class AtemStatusSeeder extends Seeder
             'system_action' => 'Close card as failed; require failure reason.',
             'incentive_treatment' => 'Not eligible for incentive',
         ],
+        [
+            'value' => 'Deleted',
+            'description' => 'ATEM card has been deleted by the issuer.',
+            'system_action' => 'Card is soft-deleted; visible only to grade 4, 5, and SuperAdmin.',
+            'incentive_treatment' => 'Not eligible for incentive.',
+        ],
+        [
+            'value' => 'Suspended',
+            'description' => 'ATEM card has been rejected by grade 5.',
+            'system_action' => 'Card is soft-deleted; visible only to issuer, grade 4, 5, and SuperAdmin.',
+            'incentive_treatment' => 'Not eligible for incentive.',
+        ],
     ];
     /**
      * Run the database seeds.

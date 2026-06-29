@@ -31,6 +31,7 @@ class Atem extends Model
         'closure_date',
         'atem_status_id',
         'remarks',
+        'suspended_remark',
         'a_incentive_amount',
         'r_incentive_amount',
         'total_incentive_amount',
@@ -41,6 +42,7 @@ class Atem extends Model
         'updated_by',
         'closed_by',
         'suspended_by',
+        'pre_suspension_status_id',
     ];
 
     protected $casts = [

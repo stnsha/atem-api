@@ -309,24 +309,36 @@ class AtemController extends Controller
             $finalDue = $ext1;
         }
 
-        // Once an extension date has been recorded, only Completed, Extended, or Failed statuses are valid.
+        // Once an extension date has been recorded, only Completed, Completed with Extension, Extended, or Failed are valid.
+        // If the card is already Completed with Extension, the issuer may only revert to Extended.
         // SuperAdmin may bypass this restriction (e.g. to revert a completed extended card to Draft).
         if ($atem->is_extended && $atem->extended_date_1 && empty($data['superadmin_override'])) {
             $newStatus = AtemStatus::find($data['atem_status_id'] ?? null);
-            if ($newStatus && !in_array($newStatus->value, ['Completed', 'Extended', 'Failed'], true)) {
+            $currentStatusValue = $atem->status ? $atem->status->value : null;
+            if ($currentStatusValue === 'Completed with Extension') {
+                if ($newStatus && $newStatus->value !== 'Extended') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'A "Completed with Extension" card can only be reverted to "Extended".',
+                    ], 422);
+                }
+            } elseif ($newStatus && !in_array($newStatus->value, ['Completed', 'Completed with Extension', 'Extended', 'Failed'], true)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Status cannot be changed to "' . $newStatus->value . '" once an extension date has been recorded. Only Completed, Extended, or Failed are permitted.',
+                    'message' => 'Status cannot be changed to "' . $newStatus->value . '" once an extension date has been recorded. Only Completed, Completed with Extension, Extended, or Failed are permitted.',
                 ], 422);
             }
         }
 
         // Closure date is the date the ATEM was actually closed (terminal status),
         // not the Final Due Date. Preserve it if already set on a re-save.
-        $closingStatuses = ['Completed', 'Completed with Excellence', 'Failed'];
+        $closingStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension', 'Failed'];
         $closedBy = $atem->closed_by;
         // SuperAdmin reverting a terminal card to Draft clears closure tracking.
         if (!empty($data['superadmin_override']) && $statusValue === 'Draft') {
+            $closedBy = null;
+        } elseif (!in_array($statusValue, $closingStatuses, true) && !($isExtended && $ext1)) {
+            // Reverting to a non-closing, non-extended status (e.g. issuer reverts Completed → Active/Draft).
             $closedBy = null;
         }
         if ($statusValue !== null && in_array($statusValue, $closingStatuses, true)) {
@@ -408,7 +420,7 @@ class AtemController extends Controller
     {
         $atem = Atem::with('status')->findOrFail($id);
 
-        $terminalStatuses = ['Completed', 'Completed with Excellence', 'Failed'];
+        $terminalStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension', 'Failed'];
         if ($atem->status && in_array($atem->status->value, $terminalStatuses, true)) {
             return response()->json([
                 'success' => false,
@@ -492,10 +504,11 @@ class AtemController extends Controller
             ->whereNull('deleted_at')
             ->value('id');
 
-        $atem->atem_status_id         = (int) $suspendedStatusId;
-        $atem->suspended_by           = $actorId;
+        $atem->pre_suspension_status_id = $atem->atem_status_id;
+        $atem->atem_status_id           = (int) $suspendedStatusId;
+        $atem->suspended_by             = $actorId;
         $atem->closed_by              = $actorId;
-        $atem->remarks                = $remarks;
+        $atem->suspended_remark       = $remarks;
         $atem->closure_date           = now()->toDateString();
         $atem->a_incentive_amount     = 0.0;
         $atem->r_incentive_amount     = 0.0;
@@ -515,5 +528,82 @@ class AtemController extends Controller
         $atem->delete();
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Unsuspend a previously suspended ATEM card. Restores to the original pre-suspension
+     * status, recalculates incentive, and un-soft-deletes the record.
+     * Allowed by grade 4/5/SuperAdmin only (enforced on frontend).
+     */
+    public function unsuspend(int $id, Request $request): JsonResponse
+    {
+        $atem = Atem::with(array('status', 'arci', 'levelStructure', 'incentiveRule'))
+            ->withTrashed()
+            ->findOrFail($id);
+
+        if (!$atem->deleted_at || !$atem->status || $atem->status->value !== 'Suspended') {
+            return response()->json(array(
+                'success' => false,
+                'message' => 'This ATEM card is not suspended.',
+            ), 422);
+        }
+
+        $actorId = (int) $request->input('actor_id', 0);
+        if ($actorId === 0) {
+            return response()->json(array(
+                'success' => false,
+                'message' => 'Actor ID is required.',
+            ), 422);
+        }
+
+        $restoreStatusId = $atem->pre_suspension_status_id;
+        if (!$restoreStatusId) {
+            $restoreStatusId = DB::table('atem_statuses')
+                ->where('value', 'Active')
+                ->whereNull('deleted_at')
+                ->value('id');
+        }
+
+        $restoreStatus      = AtemStatus::find((int) $restoreStatusId);
+        $restoreStatusValue = $restoreStatus ? $restoreStatus->value : 'Active';
+
+        $level   = $atem->levelStructure;
+        $rule    = $atem->incentiveRule;
+        $arci    = $atem->arci;
+        $incentivisedACount = $arci->where('role', 'A')->where('is_incentivised', true)->count();
+        $incentivisedRCount = $arci->where('role', 'R')->where('is_incentivised', true)->count();
+        $incentive = $this->calculator->calculate($level, $rule, $restoreStatusValue, $incentivisedACount, $incentivisedRCount);
+
+        $finalIncentive    = 0.0;
+        $incentiveApproved = false;
+        if (in_array($restoreStatusValue, array('Completed', 'Completed with Excellence'), true)) {
+            $finalIncentive    = $incentive['total'];
+            $incentiveApproved = true;
+        } elseif ($restoreStatusValue === 'Extended' && $atem->incentive_approved) {
+            $finalIncentive    = $incentive['total'];
+            $incentiveApproved = true;
+        }
+
+        $atem->atem_status_id         = (int) $restoreStatusId;
+        $atem->closed_by              = null;
+        $atem->a_incentive_amount     = $incentive['a'];
+        $atem->r_incentive_amount     = $incentive['r'];
+        $atem->total_incentive_amount = $incentive['total'];
+        $atem->final_incentive_amount = $finalIncentive;
+        $atem->claimable              = $incentive['claimable'];
+        $atem->incentive_approved     = $incentiveApproved;
+        $atem->updated_by             = $actorId;
+        $atem->save();
+
+        $atem->restore();
+
+        AtemAuditLogger::log(
+            $atem->id,
+            'unsuspended',
+            $actorId,
+            'Card unsuspended by staff #' . $actorId . '. Restored to status: ' . $restoreStatusValue
+        );
+
+        return response()->json(array('success' => true));
     }
 }
