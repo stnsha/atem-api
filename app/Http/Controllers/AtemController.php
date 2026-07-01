@@ -412,6 +412,48 @@ class AtemController extends Controller
     }
 
     /**
+     * PUT /api/atem/{id}/suspended-fields
+     * While a card is Suspended, only the Issuer may still update Title and
+     * Description. Everything else (level, rule, timeline, status, ARCI,
+     * incentive) stays frozen until the card is unsuspended.
+     */
+    public function updateSuspendedFields(Request $request, int $id): JsonResponse
+    {
+        $atem = Atem::with('status')->findOrFail($id);
+
+        if (!$atem->status || $atem->status->value !== 'Suspended') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This ATEM card is not suspended.',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'title'       => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'updated_by'  => 'nullable|integer',
+        ]);
+
+        $actorId = (int) ($data['updated_by'] ?? 0);
+        if ($actorId === 0 || $actorId !== (int) $atem->issuer_staff_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only the Issuer can edit this ATEM while it is suspended.',
+            ], 403);
+        }
+
+        $atem->title       = $data['title'];
+        $atem->description = $data['description'] ?? null;
+        $atem->updated_by  = $actorId;
+        $atem->save();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $atem->fresh(['arci', 'referenceLinks', 'attachments', 'status']),
+        ]);
+    }
+
+    /**
      * DELETE /api/atem/{id}
      * Soft-deletes a Draft or Active ATEM. Only the Issuer may delete.
      * Terminal statuses (Completed, Completed with Excellence, Failed) are permanently locked.
@@ -470,16 +512,18 @@ class AtemController extends Controller
 
     /**
      * Suspend an ATEM card. Allowed by grade 4/5/SuperAdmin only (enforced on frontend).
-     * Sets status to Suspended, resets incentive amounts, soft-deletes the record.
+     * Sets status to Suspended and resets incentive amounts. The record is not
+     * soft-deleted — Title, Description, reference links, and attachments
+     * remain editable by the Issuer while suspended.
      */
     public function suspend(int $id, Request $request): JsonResponse
     {
         $atem = Atem::with('status')->findOrFail($id);
 
-        if ($atem->deleted_at || ($atem->status && $atem->status->value === 'Suspended')) {
+        if ($atem->status && $atem->status->value === 'Suspended') {
             return response()->json([
                 'success' => false,
-                'message' => 'This ATEM card has already been suspended or deleted.',
+                'message' => 'This ATEM card has already been suspended.',
             ], 403);
         }
 
@@ -525,20 +569,17 @@ class AtemController extends Controller
             'Card suspended by staff #' . $actorId . '. Remark: ' . $remarks
         );
 
-        $atem->delete();
-
         return response()->json(['success' => true]);
     }
 
     /**
      * Unsuspend a previously suspended ATEM card. Restores to the original pre-suspension
-     * status, recalculates incentive, and un-soft-deletes the record.
+     * status and recalculates incentive.
      * Allowed by grade 4/5, SuperAdmin, or the card's Issuer only (enforced on frontend).
      */
     public function unsuspend(int $id, Request $request): JsonResponse
     {
         $atem = Atem::with(array('status', 'arci', 'levelStructure', 'incentiveRule'))
-            ->withTrashed()
             ->findOrFail($id);
 
         if (!$atem->status || $atem->status->value !== 'Suspended') {
@@ -594,8 +635,6 @@ class AtemController extends Controller
         $atem->incentive_approved     = $incentiveApproved;
         $atem->updated_by             = $actorId;
         $atem->save();
-
-        $atem->restore();
 
         AtemAuditLogger::log(
             $atem->id,
