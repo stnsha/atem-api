@@ -476,7 +476,7 @@ class AtemController extends Controller
     {
         $atem = Atem::with('status')->findOrFail($id);
 
-        if ($atem->deleted_at) {
+        if ($atem->deleted_at || ($atem->status && $atem->status->value === 'Suspended')) {
             return response()->json([
                 'success' => false,
                 'message' => 'This ATEM card has already been suspended or deleted.',
@@ -533,7 +533,7 @@ class AtemController extends Controller
     /**
      * Unsuspend a previously suspended ATEM card. Restores to the original pre-suspension
      * status, recalculates incentive, and un-soft-deletes the record.
-     * Allowed by grade 4/5/SuperAdmin only (enforced on frontend).
+     * Allowed by grade 4/5, SuperAdmin, or the card's Issuer only (enforced on frontend).
      */
     public function unsuspend(int $id, Request $request): JsonResponse
     {
@@ -541,7 +541,7 @@ class AtemController extends Controller
             ->withTrashed()
             ->findOrFail($id);
 
-        if (!$atem->deleted_at || !$atem->status || $atem->status->value !== 'Suspended') {
+        if (!$atem->status || $atem->status->value !== 'Suspended') {
             return response()->json(array(
                 'success' => false,
                 'message' => 'This ATEM card is not suspended.',
