@@ -455,7 +455,7 @@ class AtemController extends Controller
 
     /**
      * DELETE /api/atem/{id}
-     * Soft-deletes a Draft or Active ATEM. Only the Issuer may delete.
+     * Soft-deletes a Draft, Active, or Suspended ATEM. Only the Issuer or a SuperAdmin may delete.
      * Terminal statuses (Completed, Completed with Excellence, Failed) are permanently locked.
      */
     public function destroy(int $id, Request $request): JsonResponse
@@ -471,10 +471,11 @@ class AtemController extends Controller
         }
 
         $actorId = (int) $request->input('actor_id', 0);
-        if ($actorId === 0 || $actorId !== (int) $atem->issuer_staff_id) {
+        $isSuperAdminActor = (bool) $request->input('superadmin_override', false);
+        if ($actorId === 0 || ($actorId !== (int) $atem->issuer_staff_id && !$isSuperAdminActor)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Only the Issuer can delete this ATEM.',
+                'message' => 'Only the Issuer or a SuperAdmin can delete this ATEM.',
             ], 403);
         }
 
