@@ -51,6 +51,7 @@ Route::middleware('auth:api')->group(function () {
     Route::post('/atem/{id}/suspend',   [AtemController::class, 'suspend'])->whereNumber('id');
     Route::post('/atem/{id}/unsuspend', [AtemController::class, 'unsuspend'])->whereNumber('id');
     Route::put('/atem/{id}/suspended-fields', [AtemController::class, 'updateSuspendedFields'])->whereNumber('id');
+    Route::patch('/atem/{id}/payout-status', [AtemController::class, 'updatePayoutStatus'])->whereNumber('id');
 
     // ATEM ARCI members
     Route::post('/atem/{id}/arci',                          [AtemArciController::class, 'store'])->whereNumber('id');

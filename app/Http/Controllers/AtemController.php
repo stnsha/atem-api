@@ -455,23 +455,24 @@ class AtemController extends Controller
 
     /**
      * DELETE /api/atem/{id}
-     * Soft-deletes a Draft, Active, or Suspended ATEM. Only the Issuer or a SuperAdmin may delete.
-     * Terminal statuses (Completed, Completed with Excellence, Failed) are permanently locked.
+     * Soft-deletes an ATEM of any status. Only the Issuer may delete Draft/Active/Extended/Suspended
+     * cards; a SuperAdmin may delete any ATEM regardless of status.
      */
     public function destroy(int $id, Request $request): JsonResponse
     {
         $atem = Atem::with('status')->findOrFail($id);
 
+        $actorId = (int) $request->input('actor_id', 0);
+        $isSuperAdminActor = (bool) $request->input('superadmin_override', false);
+
         $terminalStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension', 'Failed'];
-        if ($atem->status && in_array($atem->status->value, $terminalStatuses, true)) {
+        if ($atem->status && in_array($atem->status->value, $terminalStatuses, true) && !$isSuperAdminActor) {
             return response()->json([
                 'success' => false,
                 'message' => 'Completed and Failed ATEMs cannot be deleted.',
             ], 403);
         }
 
-        $actorId = (int) $request->input('actor_id', 0);
-        $isSuperAdminActor = (bool) $request->input('superadmin_override', false);
         if ($actorId === 0 || ($actorId !== (int) $atem->issuer_staff_id && !$isSuperAdminActor)) {
             return response()->json([
                 'success' => false,
@@ -645,5 +646,80 @@ class AtemController extends Controller
         );
 
         return response()->json(array('success' => true));
+    }
+
+    /**
+     * PATCH /api/atem/{id}/payout-status
+     * Sets or updates the payout status for an ATEM once it has reached a terminal
+     * status. Allowed by grade 4/5, SuperAdmin, or People Management (dept 17) staff
+     * (enforced on the odb frontend). Once set to 'Closed' it can never change again.
+     */
+    public function updatePayoutStatus(int $id, Request $request): JsonResponse
+    {
+        $atem = Atem::with('status')->findOrFail($id);
+
+        if ($atem->payout_status === 'Closed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payout status has already been closed and cannot be changed.',
+            ], 403);
+        }
+
+        $terminalStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension', 'Failed'];
+        if (!$atem->status || !in_array($atem->status->value, $terminalStatuses, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payout status can only be set once the ATEM has reached a terminal status.',
+            ], 403);
+        }
+
+        $actorId = (int) $request->input('actor_id', 0);
+        if ($actorId === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Actor ID is required.',
+            ], 422);
+        }
+
+        $allowedPayoutStatuses = ['Payout In Progress', 'No Payout', 'Closed'];
+        $payoutStatus = (string) $request->input('payout_status', '');
+        if (!in_array($payoutStatus, $allowedPayoutStatuses, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid payout status.',
+            ], 422);
+        }
+
+        $remarks = trim((string) $request->input('remarks', ''));
+        if ($remarks === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'A remark is required when changing payout status.',
+            ], 422);
+        }
+
+        $atem->payout_status     = $payoutStatus;
+        $atem->payout_remark     = $remarks;
+        $atem->payout_updated_by = $actorId;
+        $atem->payout_updated_at = now();
+
+        if ($payoutStatus === 'Closed') {
+            $atem->payout_closed_by = $actorId;
+            $atem->payout_closed_at = now();
+        }
+
+        $atem->save();
+
+        AtemAuditLogger::log(
+            $atem->id,
+            'payout_status_changed',
+            $actorId,
+            'Payout status changed to ' . $payoutStatus . ' by staff #' . $actorId . '. Remark: ' . $remarks
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $atem->fresh(['status']),
+        ]);
     }
 }
