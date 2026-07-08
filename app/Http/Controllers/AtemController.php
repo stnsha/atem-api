@@ -237,9 +237,9 @@ class AtemController extends Controller
             'id', 'title', 'issuer_staff_id', 'staff_dept_id',
             'level_structure_id', 'incentive_rule_id', 'atem_status_id',
             'start_date', 'end_date', 'extended_date_1', 'final_due_date',
-            'is_extended', 'extension_count',
+            'closure_date', 'is_extended', 'extension_count',
             'a_incentive_amount', 'r_incentive_amount', 'total_incentive_amount',
-            'claimable', 'created_at', 'deleted_at',
+            'final_incentive_amount', 'claimable', 'created_at', 'deleted_at',
         ]);
 
         return response()->json([
@@ -508,6 +508,8 @@ class AtemController extends Controller
         );
 
         $atem->delete();
+
+        $this->recalcBonusEligibility($atem);
 
         return response()->json(['success' => true]);
     }
