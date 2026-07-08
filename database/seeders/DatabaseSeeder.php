@@ -18,6 +18,8 @@ class DatabaseSeeder extends Seeder
             LevelStructureSeeder::class,
             IncentiveRuleSeeder::class,
             AtemStatusSeeder::class,
+            PillarSeeder::class,
+            AddAtemTypeToExistingAtemsSeeder::class,
         ]);
     }
 }

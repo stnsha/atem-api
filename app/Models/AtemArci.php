@@ -17,6 +17,7 @@ class AtemArci extends Model
         'atem_id',
         'staff_id',
         'staff_dept_id',
+        'outlet_id',
         'role',
         'is_incentivised',
         'assigned_by',

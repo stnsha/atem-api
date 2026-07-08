@@ -6,6 +6,7 @@ use App\Models\Atem;
 use App\Models\AtemStatus;
 use App\Models\IncentiveRule;
 use App\Models\LevelStructure;
+use App\Models\Pillar;
 use App\Services\AtemAuditLogger;
 use App\Services\IncentiveCalculatorService;
 use Carbon\Carbon;
@@ -25,7 +26,7 @@ class AtemController extends Controller
 
     /**
      * GET /api/atem/lookups
-     * Returns levels, rules and statuses in a single call.
+     * Returns levels, rules, statuses and pillars in a single call.
      */
     public function lookups(): JsonResponse
     {
@@ -35,6 +36,7 @@ class AtemController extends Controller
                 'levels'   => LevelStructure::orderBy('id')->get(),
                 'rules'    => IncentiveRule::orderBy('id')->get(),
                 'statuses' => AtemStatus::orderBy('id')->get(),
+                'pillars'  => Pillar::orderBy('id')->get(),
             ],
         ]);
     }
@@ -78,6 +80,14 @@ class AtemController extends Controller
             'description'            => 'nullable|string',
             'issuer_staff_id'        => 'nullable|integer',
             'staff_dept_id'          => 'nullable|integer',
+            'atem_type'              => 'nullable|integer|in:1,2',
+            'pillar_id'              => 'nullable|integer|exists:pillars,id',
+            'reward_amount'          => 'nullable|numeric',
+            'deduction_amount'       => 'nullable|numeric',
+            'outlet_ids'             => 'nullable|array',
+            'outlet_ids.*'           => 'integer',
+            'area_manager_ids'       => 'nullable|array',
+            'area_manager_ids.*'     => 'integer',
             'level_structure_id'     => 'nullable|integer|exists:level_structures,id',
             'incentive_rule_id'      => 'nullable|integer|exists:incentive_rules,id',
             'start_date'             => 'nullable|date',
@@ -87,6 +97,7 @@ class AtemController extends Controller
             'arci'                        => 'nullable|array',
             'arci.*.staff_id'             => 'required_with:arci|integer',
             'arci.*.staff_dept_id'        => 'nullable|integer',
+            'arci.*.outlet_id'            => 'nullable|integer',
             'arci.*.role'                 => 'required_with:arci|in:A,R,C,I',
             'arci.*.is_incentivised'      => 'nullable|boolean',
             'reference_links'        => 'nullable|array',
@@ -145,6 +156,10 @@ class AtemController extends Controller
                 'description'            => $data['description'] ?? null,
                 'issuer_staff_id'        => $data['issuer_staff_id'] ?? null,
                 'staff_dept_id'          => $data['staff_dept_id'] ?? null,
+                'atem_type'              => $data['atem_type'] ?? 1,
+                'pillar_id'              => $data['pillar_id'] ?? null,
+                'reward_amount'          => $data['reward_amount'] ?? null,
+                'deduction_amount'       => $data['deduction_amount'] ?? null,
                 'level_structure_id'     => $data['level_structure_id'] ?? null,
                 'incentive_rule_id'      => $data['incentive_rule_id'] ?? null,
                 'atem_status_id'         => $statusId,
@@ -165,10 +180,23 @@ class AtemController extends Controller
                     $atem->arci()->create([
                         'staff_id'        => $member['staff_id'],
                         'staff_dept_id'   => $member['staff_dept_id'] ?? null,
+                        'outlet_id'       => $member['outlet_id'] ?? null,
                         'role'            => $member['role'],
                         'is_incentivised' => !empty($member['is_incentivised']),
                         'assigned_by'     => $createdBy,
                     ]);
+                }
+            }
+
+            if (!empty($data['outlet_ids'])) {
+                foreach (array_unique($data['outlet_ids']) as $outletId) {
+                    $atem->outlets()->create(['outlet_id' => (int) $outletId]);
+                }
+            }
+
+            if (!empty($data['area_manager_ids'])) {
+                foreach (array_unique($data['area_manager_ids']) as $areaManagerId) {
+                    $atem->areaManagers()->create(['staff_id' => (int) $areaManagerId]);
                 }
             }
 
@@ -217,8 +245,8 @@ class AtemController extends Controller
         $includeDeleted = $request->query('include_deleted') == 1;
 
         $builder = $includeDeleted
-            ? Atem::withTrashed()->with(['levelStructure', 'incentiveRule', 'status', 'arci'])
-            : Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci']);
+            ? Atem::withTrashed()->with(['levelStructure', 'incentiveRule', 'status', 'arci', 'pillar', 'outlets'])
+            : Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci', 'pillar', 'outlets']);
 
         $query = $builder->orderByDesc('id');
 
@@ -235,6 +263,7 @@ class AtemController extends Controller
 
         $atems = $query->get([
             'id', 'title', 'issuer_staff_id', 'staff_dept_id',
+            'atem_type', 'pillar_id',
             'level_structure_id', 'incentive_rule_id', 'atem_status_id',
             'start_date', 'end_date', 'extended_date_1', 'final_due_date',
             'is_extended', 'extension_count',
@@ -259,6 +288,8 @@ class AtemController extends Controller
             'attachments',
             'status',
             'progress',
+            'outlets',
+            'areaManagers',
             'auditLogs' => fn ($q) => $q->orderByDesc('created_at')->limit(100),
         ])->findOrFail($id);
 
@@ -279,6 +310,14 @@ class AtemController extends Controller
         $data = $request->validate([
             'title'              => 'required|string|max:255',
             'description'        => 'nullable|string',
+            'pillar_id'          => 'nullable|integer|exists:pillars,id',
+            'reward_amount'      => 'nullable|numeric',
+            'deduction_amount'   => 'nullable|numeric',
+            'is_deducted'        => 'nullable|boolean',
+            'outlet_ids'         => 'nullable|array',
+            'outlet_ids.*'       => 'integer',
+            'area_manager_ids'   => 'nullable|array',
+            'area_manager_ids.*' => 'integer',
             'level_structure_id' => 'nullable|integer|exists:level_structures,id',
             'incentive_rule_id'  => 'nullable|integer|exists:incentive_rules,id',
             'start_date'         => 'nullable|date',
@@ -376,9 +415,24 @@ class AtemController extends Controller
             $approvedByIssuer = false;
         }
 
+        // Outlet-type cards: the signed final_amount is only decided once the
+        // card reaches a closing status, mirroring final_incentive_amount above.
+        // is_deducted picks which of the two fixed amounts (configured up
+        // front) actually applies.
+        $finalAmount = 0.0;
+        if ((int) $atem->atem_type === 2 && in_array($statusValue, $closingStatuses, true)) {
+            $finalAmount = !empty($data['is_deducted'])
+                ? -1 * (float) ($data['deduction_amount'] ?? $atem->deduction_amount ?? 0)
+                : (float) ($data['reward_amount'] ?? $atem->reward_amount ?? 0);
+        }
+
         $atem->fill([
             'title'                  => $data['title'],
             'description'            => $data['description'] ?? null,
+            'pillar_id'              => $data['pillar_id'] ?? null,
+            'reward_amount'          => $data['reward_amount'] ?? null,
+            'deduction_amount'       => $data['deduction_amount'] ?? null,
+            'final_amount'           => $finalAmount,
             'level_structure_id'     => $data['level_structure_id'] ?? null,
             'incentive_rule_id'      => $data['incentive_rule_id'] ?? null,
             'base_incentive'         => $incentive['base'],
@@ -403,11 +457,25 @@ class AtemController extends Controller
 
         $atem->save();
 
+        if (array_key_exists('outlet_ids', $data)) {
+            $atem->outlets()->delete();
+            foreach (array_unique($data['outlet_ids'] ?? []) as $outletId) {
+                $atem->outlets()->create(['outlet_id' => (int) $outletId]);
+            }
+        }
+
+        if (array_key_exists('area_manager_ids', $data)) {
+            $atem->areaManagers()->delete();
+            foreach (array_unique($data['area_manager_ids'] ?? []) as $areaManagerId) {
+                $atem->areaManagers()->create(['staff_id' => (int) $areaManagerId]);
+            }
+        }
+
         $this->recalcBonusEligibility($atem);
 
         return response()->json([
             'success' => true,
-            'data'    => $atem->fresh(['arci', 'referenceLinks', 'attachments', 'status']),
+            'data'    => $atem->fresh(['arci', 'referenceLinks', 'attachments', 'status', 'outlets', 'areaManagers', 'pillar']),
         ]);
     }
 

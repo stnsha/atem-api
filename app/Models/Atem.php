@@ -19,6 +19,13 @@ class Atem extends Model
         'description',
         'issuer_staff_id',
         'staff_dept_id',
+        'atem_type',
+        'pillar_id',
+        'reward_mechanism_id',
+        'total_reward_amount',
+        'reward_amount',
+        'deduction_amount',
+        'final_amount',
         'level_structure_id',
         'incentive_rule_id',
         'base_incentive',
@@ -52,6 +59,11 @@ class Atem extends Model
     ];
 
     protected $casts = [
+        'atem_type'               => 'integer',
+        'total_reward_amount'     => 'float',
+        'reward_amount'           => 'float',
+        'deduction_amount'        => 'float',
+        'final_amount'            => 'float',
         'base_incentive'         => 'float',
         'a_incentive_amount'     => 'float',
         'r_incentive_amount'     => 'float',
@@ -73,6 +85,21 @@ class Atem extends Model
     public function arci(): HasMany
     {
         return $this->hasMany(AtemArci::class);
+    }
+
+    public function outlets(): HasMany
+    {
+        return $this->hasMany(AtemOutlet::class);
+    }
+
+    public function areaManagers(): HasMany
+    {
+        return $this->hasMany(AtemAreaManager::class);
+    }
+
+    public function pillar(): BelongsTo
+    {
+        return $this->belongsTo(Pillar::class);
     }
 
     public function referenceLinks(): HasMany

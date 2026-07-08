@@ -36,6 +36,7 @@ class AtemArciController extends Controller
         $data = $request->validate([
             'staff_id'        => 'required|integer',
             'staff_dept_id'   => 'nullable|integer',
+            'outlet_id'       => 'nullable|integer',
             'role'            => 'required|in:A,R,C,I',
             'is_incentivised' => 'nullable|boolean',
             'assigned_by'     => 'nullable|integer',
@@ -58,6 +59,7 @@ class AtemArciController extends Controller
             $existing->update([
                 'role'            => $data['role'],
                 'staff_dept_id'   => $data['staff_dept_id'] ?? null,
+                'outlet_id'       => $data['outlet_id'] ?? null,
                 'is_incentivised' => $data['is_incentivised'] ?? false,
                 'assigned_by'     => $data['assigned_by'] ?? null,
             ]);
@@ -66,6 +68,7 @@ class AtemArciController extends Controller
                 'atem_id'         => $atem->id,
                 'staff_id'        => $data['staff_id'],
                 'staff_dept_id'   => $data['staff_dept_id'] ?? null,
+                'outlet_id'       => $data['outlet_id'] ?? null,
                 'role'            => $data['role'],
                 'is_incentivised' => $data['is_incentivised'] ?? false,
                 'assigned_by'     => $data['assigned_by'] ?? null,
