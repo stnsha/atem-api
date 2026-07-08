@@ -87,10 +87,12 @@ Atem
 
 ### Bonus Eligibility
 
-`CalculateBonusEligibility` artisan command (`atem:calculate-bonus-eligibility {month} {year}`):
+`CalculateBonusEligibility` artisan command (`atem:calculate-bonus --month= --year=`):
 1. Fetches all non-draft ATEM cards for the period
 2. Calls `StaffApiService::getStaffInfo()` to get current grade/struct for each issuer
 3. Upserts `atem_bonus_eligibilities` records (snapshots grade/struct at run time)
+
+`--month` and `--year` both default to the current month/year when omitted. Passing `--year` alone (no `--month`) processes every month of that year in one run; `--all-months` forces the same whole-year behavior explicitly (e.g. `atem:calculate-bonus --year=2026 --all-months`).
 
 ## Directory Layout
 
@@ -130,8 +132,11 @@ php artisan migrate:refresh --seed
 # Run development server
 php artisan serve
 
-# Calculate bonus eligibility
-php artisan atem:calculate-bonus-eligibility {month} {year}
+# Calculate bonus eligibility for a single month
+php artisan atem:calculate-bonus --month=3 --year=2026
+
+# Calculate bonus eligibility for every month of a year
+php artisan atem:calculate-bonus --year=2026
 ```
 
 ## Response Shape Convention

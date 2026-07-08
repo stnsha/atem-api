@@ -13,18 +13,42 @@ use Illuminate\Database\Eloquent\Collection;
 class CalculateBonusEligibility extends Command
 {
     protected $signature = 'atem:calculate-bonus
-                            {--month= : Month number (1-12), defaults to current month}
-                            {--year=  : Year, defaults to current year}';
+                            {--month= : Month number (1-12), defaults to current month. Omitted together with --year runs every month of that year}
+                            {--year=  : Year, defaults to current year}
+                            {--all-months : Force processing every month (1-12) of --year (or the current year) in one run}';
 
-    protected $description = 'Calculate and upsert AtemBonusEligibility records for the given month/year';
+    protected $description = 'Calculate and upsert AtemBonusEligibility records for the given month/year, or every month of a year';
 
     public function handle(StaffApiService $staffApi): int
     {
-        $month = (int) ($this->option('month') ?: Carbon::now()->month);
-        $year  = (int) ($this->option('year')  ?: Carbon::now()->year);
+        $year = (int) ($this->option('year') ?: Carbon::now()->year);
 
+        // "--year=2026" on its own (no --month) is treated as "the whole year",
+        // matching how people naturally reach for this command. Pass an explicit
+        // --month to run a single month, or --all-months to force whole-year mode
+        // even when the current month would otherwise be assumed.
+        $runAllMonths = $this->option('all-months') || (!$this->option('month') && $this->option('year'));
+
+        if ($runAllMonths) {
+            $this->info("Calculating bonus eligibility for all months of {$year}...");
+            for ($month = 1; $month <= 12; $month++) {
+                $result = $this->calculateForMonth($staffApi, $month, $year);
+                if ($result !== 0) {
+                    return $result;
+                }
+            }
+            $this->info("Finished calculating bonus eligibility for all months of {$year}.");
+            return 0;
+        }
+
+        $month = (int) ($this->option('month') ?: Carbon::now()->month);
+        return $this->calculateForMonth($staffApi, $month, $year);
+    }
+
+    private function calculateForMonth(StaffApiService $staffApi, int $month, int $year): int
+    {
         $this->info("Calculating bonus eligibility for {$month}/{$year}...");
-        $this->writeProgress(0, 5, 'Starting...');
+        $this->writeProgress(0, 5, "Starting {$month}/{$year}...");
 
         $closedStatusIds = AtemStatus::whereIn('value', array('Completed', 'Completed with Excellence', 'Completed with Extension'))
             ->pluck('id');
