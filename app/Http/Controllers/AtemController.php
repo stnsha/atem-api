@@ -268,7 +268,9 @@ class AtemController extends Controller
             'start_date', 'end_date', 'extended_date_1', 'final_due_date',
             'closure_date', 'is_extended', 'extension_count',
             'a_incentive_amount', 'r_incentive_amount', 'total_incentive_amount',
-            'final_incentive_amount', 'claimable', 'created_at', 'deleted_at',
+            'final_incentive_amount', 'reward_amount', 'deduction_amount',
+            'final_amount', 'total_reward_amount',
+            'claimable', 'created_at', 'deleted_at',
         ]);
 
         return response()->json([
