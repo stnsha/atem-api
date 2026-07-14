@@ -13,20 +13,44 @@ use Illuminate\Database\Eloquent\Collection;
 class CalculateBonusEligibility extends Command
 {
     protected $signature = 'atem:calculate-bonus
-                            {--month= : Month number (1-12), defaults to current month}
-                            {--year=  : Year, defaults to current year}';
+                            {--month= : Month number (1-12), defaults to current month. Omitted together with --year runs every month of that year}
+                            {--year=  : Year, defaults to current year}
+                            {--all-months : Force processing every month (1-12) of --year (or the current year) in one run}';
 
-    protected $description = 'Calculate and upsert AtemBonusEligibility records for the given month/year';
+    protected $description = 'Calculate and upsert AtemBonusEligibility records for the given month/year, or every month of a year';
 
     public function handle(StaffApiService $staffApi): int
     {
+        $year = (int) ($this->option('year') ?: Carbon::now()->year);
+
+        // "--year=2026" on its own (no --month) is treated as "the whole year",
+        // matching how people naturally reach for this command. Pass an explicit
+        // --month to run a single month, or --all-months to force whole-year mode
+        // even when the current month would otherwise be assumed.
+        $runAllMonths = $this->option('all-months') || (!$this->option('month') && $this->option('year'));
+
+        if ($runAllMonths) {
+            $this->info("Calculating bonus eligibility for all months of {$year}...");
+            for ($month = 1; $month <= 12; $month++) {
+                $result = $this->calculateForMonth($staffApi, $month, $year);
+                if ($result !== 0) {
+                    return $result;
+                }
+            }
+            $this->info("Finished calculating bonus eligibility for all months of {$year}.");
+            return 0;
+        }
+
         $month = (int) ($this->option('month') ?: Carbon::now()->month);
-        $year  = (int) ($this->option('year')  ?: Carbon::now()->year);
+        return $this->calculateForMonth($staffApi, $month, $year);
+    }
 
+    private function calculateForMonth(StaffApiService $staffApi, int $month, int $year): int
+    {
         $this->info("Calculating bonus eligibility for {$month}/{$year}...");
-        $this->writeProgress(0, 5, 'Starting...');
+        $this->writeProgress(0, 5, "Starting {$month}/{$year}...");
 
-        $closedStatusIds = AtemStatus::whereIn('value', array('Completed', 'Completed with Excellence'))
+        $closedStatusIds = AtemStatus::whereIn('value', array('Completed', 'Completed with Excellence', 'Completed with Extension'))
             ->pluck('id');
         $activeStatusId  = AtemStatus::where('value', 'Active')->value('id');
         $extendStatusId  = AtemStatus::where('value', 'Extended')->value('id');
@@ -44,6 +68,12 @@ class CalculateBonusEligibility extends Command
             ->get();
 
         foreach ($completedAtems as $atem) {
+            // final_incentive_amount is the actual approved payout (0 unless approved) —
+            // a_incentive_amount/r_incentive_amount are always the raw rule-based estimate
+            // and stay non-zero even when the issuer rejected an extended card's payout,
+            // so only award incentive when the final amount was actually approved.
+            $isApproved = (float) $atem->final_incentive_amount > 0;
+
             $incACount = $atem->arci->where('role', 'A')->where('is_incentivised', true)->count();
             $incRCount = $atem->arci->where('role', 'R')->where('is_incentivised', true)->count();
 
@@ -58,10 +88,12 @@ class CalculateBonusEligibility extends Command
 
             foreach ($atem->arci as $member) {
                 $incentive = 0.0;
-                if ($member->role === 'A' && $member->is_incentivised && $incACount > 0) {
-                    $incentive = (float) $atem->a_incentive_amount / $incACount;
-                } elseif ($member->role === 'R' && $member->is_incentivised && $incRCount > 0) {
-                    $incentive = (float) $atem->r_incentive_amount / $incRCount;
+                if ($isApproved) {
+                    if ($member->role === 'A' && $member->is_incentivised && $incACount > 0) {
+                        $incentive = (float) $atem->a_incentive_amount / $incACount;
+                    } elseif ($member->role === 'R' && $member->is_incentivised && $incRCount > 0) {
+                        $incentive = (float) $atem->r_incentive_amount / $incRCount;
+                    }
                 }
 
                 $involved[$member->staff_id] = array(
@@ -92,28 +124,39 @@ class CalculateBonusEligibility extends Command
             $this->applyStatusCount($aggregates, $activeAtems, 'active_count');
         }
 
-        // Extended ATEM: start_date in month/year
+        // Extended ATEM: closure_date in month/year
         $this->writeProgress(3, 5, 'Processing extended ATEMs');
         if ($extendStatusId) {
             $extendAtems = Atem::with(array('arci'))
                 ->where('atem_status_id', $extendStatusId)
-                ->whereMonth('start_date', $month)
-                ->whereYear('start_date', $year)
+                ->whereNotNull('closure_date')
+                ->whereMonth('closure_date', $month)
+                ->whereYear('closure_date', $year)
                 ->get();
 
             $this->applyStatusCount($aggregates, $extendAtems, 'extend_count');
         }
 
-        // Failed ATEM: start_date in month/year
+        // Failed ATEM: closure_date in month/year
         $this->writeProgress(4, 5, 'Processing failed ATEMs');
         if ($failedStatusId) {
             $failedAtems = Atem::with(array('arci'))
                 ->where('atem_status_id', $failedStatusId)
-                ->whereMonth('start_date', $month)
-                ->whereYear('start_date', $year)
+                ->whereNotNull('closure_date')
+                ->whereMonth('closure_date', $month)
+                ->whereYear('closure_date', $year)
                 ->get();
 
             $this->applyStatusCount($aggregates, $failedAtems, 'failed_count');
+        }
+
+        // Reconcile with previously-stored rows: a staff member who had a record for this
+        // month/year before (e.g. an ATEM that was Active then, or has since been deleted)
+        // but no longer matches any bucket must have their counts reset to zero here,
+        // rather than being left with stale non-zero values from the last calculation.
+        $existingRows = AtemBonusEligibility::where('month', $month)->where('year', $year)->get();
+        foreach ($existingRows as $existingRow) {
+            $this->ensureAggregate($aggregates, (int) $existingRow->staff_id, $existingRow->staff_dept_id);
         }
 
         if (empty($aggregates)) {

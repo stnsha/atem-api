@@ -180,9 +180,9 @@ Calls `POST {ODB_API_URL}/staff/info.php` and returns:
 
 ## Console Commands
 
-**`atem:calculate-bonus-eligibility {month} {year}`** (`app/Console/Commands/CalculateBonusEligibility.php`)
+**`atem:calculate-bonus --month= --year=`** (`app/Console/Commands/CalculateBonusEligibility.php`)
 
-Calculates bonus eligibility for all staff with ATEM cards in the given period. Calls `StaffApiService` to snapshot current grade/struct, then writes `atem_bonus_eligibilities` records.
+Calculates bonus eligibility for all staff with ATEM cards in the given period. Calls `StaffApiService` to snapshot current grade/struct, then writes `atem_bonus_eligibilities` records. `--month` and `--year` both default to the current month/year; passing `--year` alone (no `--month`), or adding `--all-months`, runs every month of that year in one invocation.
 
 ---
 
