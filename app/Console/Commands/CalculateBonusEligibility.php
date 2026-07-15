@@ -60,7 +60,7 @@ class CalculateBonusEligibility extends Command
 
         // Completed ATEM: closure_date in month/year
         $this->writeProgress(1, 5, 'Processing completed ATEMs');
-        $completedAtems = Atem::with(array('arci', 'status'))
+        $completedAtems = Atem::with(array('arci', 'areaManagers', 'status'))
             ->whereIn('atem_status_id', $closedStatusIds)
             ->whereNotNull('closure_date')
             ->whereMonth('closure_date', $month)
@@ -82,6 +82,18 @@ class CalculateBonusEligibility extends Command
             if ($atem->issuer_staff_id) {
                 $involved[$atem->issuer_staff_id] = array(
                     'dept_id'   => $atem->staff_dept_id,
+                    'incentive' => 0.0,
+                );
+            }
+
+            // Outlet-type cards track responsible staff via atem_area_managers,
+            // a source HQ cards don't have. They're not part of the ARCI role
+            // split, so they get counted with no incentive share here — unless
+            // the same person also appears in $atem->arci below, which overwrites
+            // this with their real computed incentive.
+            foreach ($atem->areaManagers as $areaManager) {
+                $involved[$areaManager->staff_id] = array(
+                    'dept_id'   => null,
                     'incentive' => 0.0,
                 );
             }
@@ -115,7 +127,7 @@ class CalculateBonusEligibility extends Command
         // Active ATEM: start_date in month/year
         $this->writeProgress(2, 5, 'Processing active ATEMs');
         if ($activeStatusId) {
-            $activeAtems = Atem::with(array('arci'))
+            $activeAtems = Atem::with(array('arci', 'areaManagers'))
                 ->where('atem_status_id', $activeStatusId)
                 ->whereMonth('start_date', $month)
                 ->whereYear('start_date', $year)
@@ -127,7 +139,7 @@ class CalculateBonusEligibility extends Command
         // Extended ATEM: closure_date in month/year
         $this->writeProgress(3, 5, 'Processing extended ATEMs');
         if ($extendStatusId) {
-            $extendAtems = Atem::with(array('arci'))
+            $extendAtems = Atem::with(array('arci', 'areaManagers'))
                 ->where('atem_status_id', $extendStatusId)
                 ->whereNotNull('closure_date')
                 ->whereMonth('closure_date', $month)
@@ -140,7 +152,7 @@ class CalculateBonusEligibility extends Command
         // Failed ATEM: closure_date in month/year
         $this->writeProgress(4, 5, 'Processing failed ATEMs');
         if ($failedStatusId) {
-            $failedAtems = Atem::with(array('arci'))
+            $failedAtems = Atem::with(array('arci', 'areaManagers'))
                 ->where('atem_status_id', $failedStatusId)
                 ->whereNotNull('closure_date')
                 ->whereMonth('closure_date', $month)
@@ -253,6 +265,12 @@ class CalculateBonusEligibility extends Command
                 $involved[$atem->issuer_staff_id] = $atem->staff_dept_id;
             }
 
+            foreach ($atem->areaManagers as $areaManager) {
+                if (!isset($involved[$areaManager->staff_id])) {
+                    $involved[$areaManager->staff_id] = null;
+                }
+            }
+
             foreach ($atem->arci as $member) {
                 $involved[$member->staff_id] = $member->staff_dept_id;
             }
@@ -282,8 +300,7 @@ class CalculateBonusEligibility extends Command
             ->get();
 
         foreach ($records as $record) {
-            $extendedCount = Atem::with('arci')
-                ->where('claimable', true)
+            $extendedCount = Atem::where('claimable', true)
                 ->where('extension_count', '>', 0)
                 ->whereMonth('closure_date', $month)
                 ->whereYear('closure_date', $year)
@@ -291,6 +308,9 @@ class CalculateBonusEligibility extends Command
                     $q->where('issuer_staff_id', $record->staff_id)
                       ->orWhereHas('arci', function ($q2) use ($record) {
                           $q2->where('staff_id', $record->staff_id);
+                      })
+                      ->orWhereHas('areaManagers', function ($q3) use ($record) {
+                          $q3->where('staff_id', $record->staff_id);
                       });
                 })
                 ->count();

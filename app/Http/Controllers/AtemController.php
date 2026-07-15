@@ -245,8 +245,8 @@ class AtemController extends Controller
         $includeDeleted = $request->query('include_deleted') == 1;
 
         $builder = $includeDeleted
-            ? Atem::withTrashed()->with(['levelStructure', 'incentiveRule', 'status', 'arci', 'pillar', 'outlets'])
-            : Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci', 'pillar', 'outlets']);
+            ? Atem::withTrashed()->with(['levelStructure', 'incentiveRule', 'status', 'arci', 'pillar', 'outlets', 'areaManagers'])
+            : Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci', 'pillar', 'outlets', 'areaManagers']);
 
         $query = $builder->orderByDesc('id');
 
@@ -271,6 +271,8 @@ class AtemController extends Controller
             'final_incentive_amount', 'reward_amount', 'deduction_amount',
             'final_amount', 'total_reward_amount',
             'claimable', 'created_at', 'deleted_at',
+            'payout_status', 'payout_remark', 'payout_updated_by', 'payout_updated_at',
+            'payout_closed_by', 'payout_closed_at',
         ]);
 
         return response()->json([
@@ -730,7 +732,8 @@ class AtemController extends Controller
     {
         $atem = Atem::with('status')->findOrFail($id);
 
-        if ($atem->payout_status === 'Closed') {
+        $isSuperAdmin = (bool) $request->input('is_superadmin', false);
+        if ($atem->payout_status === 'Closed' && !$isSuperAdmin) {
             return response()->json([
                 'success' => false,
                 'message' => 'Payout status has already been closed and cannot be changed.',
@@ -778,6 +781,10 @@ class AtemController extends Controller
         if ($payoutStatus === 'Closed') {
             $atem->payout_closed_by = $actorId;
             $atem->payout_closed_at = now();
+        } elseif ($isSuperAdmin) {
+            // Reopening a previously-closed record via SuperAdmin override.
+            $atem->payout_closed_by = null;
+            $atem->payout_closed_at = null;
         }
 
         $atem->save();
@@ -793,5 +800,116 @@ class AtemController extends Controller
             'success' => true,
             'data'    => $atem->fresh(['status']),
         ]);
+    }
+
+    /**
+     * PATCH /api/atem/payout-status/bulk-lock
+     * Closes payout for every eligible id (terminal status, not already Closed).
+     * Ineligible ids are skipped rather than failing the whole batch.
+     */
+    public function bulkLockPayout(Request $request): JsonResponse
+    {
+        $ids = array_values(array_unique(array_map('intval', (array) $request->input('ids', []))));
+        $remarks = trim((string) $request->input('remarks', ''));
+        $actorId = (int) $request->input('actor_id', 0);
+
+        if (empty($ids)) {
+            return response()->json(['success' => false, 'message' => 'No ATEM ids supplied.'], 422);
+        }
+        if ($actorId === 0) {
+            return response()->json(['success' => false, 'message' => 'Actor ID is required.'], 422);
+        }
+        if ($remarks === '') {
+            return response()->json(['success' => false, 'message' => 'A remark is required when locking payout.'], 422);
+        }
+
+        $terminalStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension', 'Failed'];
+        $locked = 0;
+        $skipped = 0;
+
+        DB::transaction(function () use ($ids, $remarks, $actorId, $terminalStatuses, &$locked, &$skipped) {
+            $atems = Atem::with('status')->whereIn('id', $ids)->get();
+            foreach ($atems as $atem) {
+                if ($atem->payout_status === 'Closed' || !$atem->status || !in_array($atem->status->value, $terminalStatuses, true)) {
+                    $skipped++;
+                    continue;
+                }
+
+                $atem->payout_status     = 'Closed';
+                $atem->payout_remark     = $remarks;
+                $atem->payout_updated_by = $actorId;
+                $atem->payout_updated_at = now();
+                $atem->payout_closed_by  = $actorId;
+                $atem->payout_closed_at  = now();
+                $atem->save();
+
+                AtemAuditLogger::log(
+                    $atem->id,
+                    'payout_bulk_closed',
+                    $actorId,
+                    'Payout closed in bulk by staff #' . $actorId . '. Remark: ' . $remarks
+                );
+
+                $locked++;
+            }
+        });
+
+        return response()->json(['success' => true, 'locked' => $locked, 'skipped' => $skipped]);
+    }
+
+    /**
+     * PATCH /api/atem/payout-status/bulk-unlock
+     * Reopens payout for every currently-Closed id in the batch. Allowed for
+     * grade 2+, People Management (dept 17), or SuperAdmin — authorization is
+     * fully resolved by the odb frontend (api.php) before this endpoint is
+     * ever called, the same trust boundary bulkLockPayout() already relies on.
+     */
+    public function bulkUnlockPayout(Request $request): JsonResponse
+    {
+        $ids = array_values(array_unique(array_map('intval', (array) $request->input('ids', []))));
+        $remarks = trim((string) $request->input('remarks', ''));
+        $actorId = (int) $request->input('actor_id', 0);
+
+        if (empty($ids)) {
+            return response()->json(['success' => false, 'message' => 'No ATEM ids supplied.'], 422);
+        }
+        if ($actorId === 0) {
+            return response()->json(['success' => false, 'message' => 'Actor ID is required.'], 422);
+        }
+        if ($remarks === '') {
+            return response()->json(['success' => false, 'message' => 'A remark is required when unlocking payout.'], 422);
+        }
+
+        $unlocked = 0;
+        $skipped = 0;
+
+        DB::transaction(function () use ($ids, $remarks, $actorId, &$unlocked, &$skipped) {
+            $atems = Atem::whereIn('id', $ids)->get();
+            foreach ($atems as $atem) {
+                if ($atem->payout_status !== 'Closed') {
+                    $skipped++;
+                    continue;
+                }
+
+                $atem->payout_status     = null;
+                $atem->payout_remark     = $remarks;
+                $atem->payout_updated_by = $actorId;
+                $atem->payout_updated_at = now();
+                $atem->payout_closed_by  = null;
+                $atem->payout_closed_at  = null;
+                $atem->save();
+
+                AtemAuditLogger::log(
+                    $atem->id,
+                    'payout_bulk_unlocked',
+                    $actorId,
+                    'Payout unlocked in bulk by staff #' . $actorId . '. Remark: ' . $remarks
+                );
+
+                $unlocked++;
+            }
+        });
+
+        return response()->json(['success' => true, 'unlocked' => $unlocked, 'skipped' => $skipped]);
     }
 }
