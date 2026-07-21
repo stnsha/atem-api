@@ -311,6 +311,16 @@ class AtemController extends Controller
     {
         $atem = Atem::findOrFail($id);
 
+        // Once payout has been marked Closed/Paid, the card is permanently locked —
+        // no field may be changed by anyone, including SuperAdmin (superadmin_override
+        // does not apply here).
+        if ($atem->payout_status === 'Closed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This ATEM cannot be edited because its payout has already been closed.',
+            ], 403);
+        }
+
         $data = $request->validate([
             'title'              => 'required|string|max:255',
             'description'        => 'nullable|string',
@@ -340,6 +350,35 @@ class AtemController extends Controller
         $rule   = !empty($data['incentive_rule_id']) ? IncentiveRule::find($data['incentive_rule_id']) : null;
         $status = !empty($data['atem_status_id']) ? AtemStatus::find($data['atem_status_id']) : null;
         $statusValue = $status ? $status->value : null;
+
+        // Non-issuer SuperAdmin status-change guard. superadmin_override is only ever
+        // set server-side (odb's api.php resolves $is_api_superadmin itself, dev-override
+        // aware), so this cannot be spoofed by the client. Terminal-original-status cards
+        // are excluded — that flow's Remarks field is locked client-side and doesn't
+        // require a remark today.
+        $originalStatusId    = (int) $atem->atem_status_id;
+        $originalStatus      = AtemStatus::find($originalStatusId);
+        $originalStatusValue = $originalStatus ? $originalStatus->value : null;
+        $actorId             = (int) ($data['updated_by'] ?? 0);
+        $isSuperAdminActor   = !empty($data['superadmin_override']);
+
+        $superadminTerminalStatuses = ['Completed', 'Failed', 'Completed with Extension'];
+        $isNonIssuerSuperAdminStatusEdit = $isSuperAdminActor
+            && $actorId !== (int) $atem->issuer_staff_id
+            && array_key_exists('atem_status_id', $data)
+            && (int) ($data['atem_status_id'] ?? 0) !== $originalStatusId
+            && !in_array($originalStatusValue, $superadminTerminalStatuses, true);
+
+        $superAdminStatusChangeRemark = '';
+        if ($isNonIssuerSuperAdminStatusEdit) {
+            $superAdminStatusChangeRemark = trim((string) ($data['remarks'] ?? ''));
+            if ($superAdminStatusChangeRemark === '') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A remark is required when a SuperAdmin changes the status of an ATEM they did not issue.',
+                ], 422);
+            }
+        }
 
         // Extension handling: only one extension date is permitted.
         $isExtended     = !empty($data['is_extended']);
@@ -460,6 +499,16 @@ class AtemController extends Controller
         ]);
 
         $atem->save();
+
+        if ($isNonIssuerSuperAdminStatusEdit) {
+            AtemAuditLogger::log(
+                $atem->id,
+                'status_changed_by_superadmin',
+                $actorId,
+                'Status changed by non-issuer SuperAdmin (staff #' . $actorId . ') from status #' . $originalStatusId
+                    . ' to status #' . (int) $atem->atem_status_id . '. Remark: ' . $superAdminStatusChangeRemark
+            );
+        }
 
         if (array_key_exists('outlet_ids', $data)) {
             $atem->outlets()->delete();
@@ -600,6 +649,13 @@ class AtemController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'This ATEM card has already been suspended.',
+            ], 403);
+        }
+
+        if ($atem->payout_status === 'Closed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This ATEM cannot be suspended because its payout has already been closed.',
             ], 403);
         }
 
