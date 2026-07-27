@@ -6,6 +6,8 @@ use App\Http\Controllers\IidasMigrationController;
 use App\Http\Controllers\AtemArciController;
 use App\Http\Controllers\AtemAttachmentController;
 use App\Http\Controllers\AtemController;
+use App\Http\Controllers\AtemMessageController;
+use App\Http\Controllers\AtemNotificationController;
 use App\Http\Controllers\AtemProgressController;
 use App\Http\Controllers\AtemReferenceLinkController;
 use App\Http\Controllers\AtemStatusController;
@@ -71,6 +73,17 @@ Route::middleware('auth:api')->group(function () {
     Route::post('/atem/{id}/progress',                   [AtemProgressController::class, 'store'])->whereNumber('id');
     Route::put('/atem/{id}/progress/{progressId}',       [AtemProgressController::class, 'update'])->whereNumber('id')->whereNumber('progressId');
     Route::delete('/atem/{id}/progress/{progressId}',    [AtemProgressController::class, 'destroy'])->whereNumber('id')->whereNumber('progressId');
+
+    // ATEM chat messages
+    Route::get('/atem/{id}/messages',  [AtemMessageController::class, 'index'])->whereNumber('id');
+    Route::post('/atem/{id}/messages', [AtemMessageController::class, 'store'])->whereNumber('id');
+    Route::patch('/atem/{id}/messages/{messageId}',  [AtemMessageController::class, 'update'])->whereNumber('id')->whereNumber('messageId');
+    Route::delete('/atem/{id}/messages/{messageId}', [AtemMessageController::class, 'destroy'])->whereNumber('id')->whereNumber('messageId');
+
+    // Notifications (generic table; chat_message is the only producer today)
+    Route::get('/notifications',                 [AtemNotificationController::class, 'index']);
+    Route::patch('/notifications/{id}/read',     [AtemNotificationController::class, 'markRead'])->whereNumber('id');
+    Route::patch('/notifications/mark-all-read', [AtemNotificationController::class, 'markAllRead']);
 
     // IIDAS migration preview (read-only, requires auth:api)
     Route::get('/iidas/migration-preview',         [IidasMigrationController::class, 'preview']);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Atem;
+use App\Models\AtemNotification;
 use App\Models\AtemStatus;
 use App\Models\IncentiveRule;
 use App\Models\LevelStructure;
@@ -14,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AtemController extends Controller
 {
@@ -295,6 +297,7 @@ class AtemController extends Controller
             'outlets',
             'areaManagers',
             'auditLogs' => fn ($q) => $q->orderByDesc('created_at')->limit(100),
+            'messages'  => fn ($q) => $q->orderBy('created_at')->limit(300),
         ])->findOrFail($id);
 
         return response()->json([
@@ -700,6 +703,21 @@ class AtemController extends Controller
             $actorId,
             'Card suspended by staff #' . $actorId . '. Remark: ' . $remarks
         );
+
+        $issuerId = (int) $atem->issuer_staff_id;
+        if ($issuerId > 0 && $issuerId !== $actorId) {
+            AtemNotification::create([
+                'recipient_staff_id' => $issuerId,
+                'type'               => 'atem_suspended',
+                'atem_id'            => $atem->id,
+                'atem_message_id'    => null,
+                'payload'            => [
+                    'atem_title'   => $atem->title,
+                    'actor_staff_id' => $actorId,
+                    'reason'       => Str::limit($remarks, 120),
+                ],
+            ]);
+        }
 
         return response()->json(['success' => true]);
     }

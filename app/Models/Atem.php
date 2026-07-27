@@ -122,6 +122,11 @@ class Atem extends Model
         return $this->hasMany(AtemAuditLog::class);
     }
 
+    public function messages(): HasMany
+    {
+        return $this->hasMany(AtemMessage::class);
+    }
+
     public function levelStructure(): BelongsTo
     {
         return $this->belongsTo(LevelStructure::class);
