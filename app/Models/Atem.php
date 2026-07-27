@@ -56,6 +56,9 @@ class Atem extends Model
         'payout_updated_at',
         'payout_closed_by',
         'payout_closed_at',
+        'appeal_remark',
+        'appealed_by',
+        'appealed_at',
     ];
 
     protected $casts = [
@@ -80,6 +83,7 @@ class Atem extends Model
         'closure_date'            => 'date:Y-m-d',
         'payout_updated_at'       => 'datetime',
         'payout_closed_at'        => 'datetime',
+        'appealed_at'             => 'datetime',
     ];
 
     public function arci(): HasMany

@@ -354,6 +354,24 @@ class AtemController extends Controller
         $status = !empty($data['atem_status_id']) ? AtemStatus::find($data['atem_status_id']) : null;
         $statusValue = $status ? $status->value : null;
 
+        // Marking a card Completed/Completed with Excellence/Completed with Extension
+        // requires an "Outcome Attachment" reference link (case-insensitive, exact
+        // title match) - mirrors the client-side check in edit.js's validateFinal(),
+        // enforced here too since reference links are a separate resource the client
+        // could otherwise bypass this check for via a direct API call.
+        $completionStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension'];
+        if (in_array($statusValue, $completionStatuses, true)) {
+            $hasOutcomeAttachment = $atem->referenceLinks()
+                ->whereRaw('LOWER(TRIM(name)) = ?', ['outcome attachment'])
+                ->exists();
+            if (!$hasOutcomeAttachment) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A Reference Link titled "Outcome Attachment" is required before saving as ' . $statusValue . '.',
+                ], 422);
+            }
+        }
+
         // Non-issuer SuperAdmin status-change guard. superadmin_override is only ever
         // set server-side (odb's api.php resolves $is_api_superadmin itself, dev-override
         // aware), so this cannot be spoofed by the client. Terminal-original-status cards
@@ -365,7 +383,7 @@ class AtemController extends Controller
         $actorId             = (int) ($data['updated_by'] ?? 0);
         $isSuperAdminActor   = !empty($data['superadmin_override']);
 
-        $superadminTerminalStatuses = ['Completed', 'Failed', 'Completed with Extension'];
+        $superadminTerminalStatuses = ['Completed', 'Failed', 'Completed with Extension', 'Suspended'];
         $isNonIssuerSuperAdminStatusEdit = $isSuperAdminActor
             && $actorId !== (int) $atem->issuer_staff_id
             && array_key_exists('atem_status_id', $data)
@@ -432,10 +450,12 @@ class AtemController extends Controller
             if ($closedBy === null) {
                 $closedBy = $data['updated_by'] ?? null;
             }
-        } elseif ($isExtended && $ext1) {
-            // Extended closure date equals the extension date.
-            $closureDate = $ext1;
         } else {
+            // Any non-closing status (Draft, Active, Extended, Suspended, etc.) has
+            // no closure date - including when is_extended/extended_date_1 are set
+            // but the status itself hasn't actually closed yet (e.g. still "Extended",
+            // not yet "Completed with Extension"). Previously this branch incorrectly
+            // set closure_date to the extension date for exactly that non-terminal case.
             $closureDate = null;
         }
 
@@ -511,6 +531,26 @@ class AtemController extends Controller
                 'Status changed by non-issuer SuperAdmin (staff #' . $actorId . ') from status #' . $originalStatusId
                     . ' to status #' . (int) $atem->atem_status_id . '. Remark: ' . $superAdminStatusChangeRemark
             );
+        }
+
+        // Transition into Force Terminated (manual only - there is no automatic
+        // scheduler) - notify the Issuer in-app. The actual email is sent by
+        // odb's api.php, which detects this same transition from the response
+        // and calls its own mailer (atem-api sends no mail itself).
+        if ($statusValue === 'Force Terminated' && $originalStatusValue !== 'Force Terminated') {
+            $issuerId = (int) $atem->issuer_staff_id;
+            if ($issuerId > 0 && $issuerId !== $actorId) {
+                AtemNotification::create([
+                    'recipient_staff_id' => $issuerId,
+                    'type'               => 'atem_force_terminated',
+                    'atem_id'            => $atem->id,
+                    'atem_message_id'    => null,
+                    'payload'            => [
+                        'atem_title' => $atem->title,
+                        'actor_staff_id' => $actorId,
+                    ],
+                ]);
+            }
         }
 
         if (array_key_exists('outlet_ids', $data)) {
@@ -688,7 +728,9 @@ class AtemController extends Controller
         $atem->suspended_by             = $actorId;
         $atem->closed_by              = $actorId;
         $atem->suspended_remark       = $remarks;
-        $atem->closure_date           = now()->toDateString();
+        // Suspending is a pause, not a closure - the suspend date must not be
+        // conflated with (or displayed as) the Closure Date.
+        $atem->closure_date           = null;
         $atem->a_incentive_amount     = 0.0;
         $atem->r_incentive_amount     = 0.0;
         $atem->total_incentive_amount = 0.0;
@@ -723,6 +765,70 @@ class AtemController extends Controller
     }
 
     /**
+     * POST /api/atem/{id}/appeal
+     * The Issuer appeals a suspension, providing a reason. One appeal per
+     * suspension cycle - appeal_remark/appealed_by/appealed_at are reset when
+     * the card is unsuspended, allowing a fresh appeal on a future suspension.
+     * Notifies (in-app) whoever suspended the card; the actual email is sent
+     * by odb's api.php, which stays the only part of this app that sends mail.
+     */
+    public function appeal(int $id, Request $request): JsonResponse
+    {
+        $atem = Atem::with('status')->findOrFail($id);
+
+        if (!$atem->status || $atem->status->value !== 'Suspended') {
+            return response()->json(['success' => false, 'message' => 'This ATEM card is not currently suspended.'], 422);
+        }
+
+        $actorId = (int) $request->input('actor_id', 0);
+        if ($actorId === 0) {
+            return response()->json(['success' => false, 'message' => 'Actor ID is required.'], 422);
+        }
+
+        if ($actorId !== (int) $atem->issuer_staff_id) {
+            return response()->json(['success' => false, 'message' => 'Only the Issuer can appeal this suspension.'], 403);
+        }
+
+        if ($atem->appealed_at) {
+            return response()->json(['success' => false, 'message' => 'An appeal has already been submitted for this suspension.'], 409);
+        }
+
+        $remarks = trim((string) $request->input('remarks', ''));
+        if ($remarks === '') {
+            return response()->json(['success' => false, 'message' => 'An appeal reason is required.'], 422);
+        }
+
+        $atem->appeal_remark = $remarks;
+        $atem->appealed_by   = $actorId;
+        $atem->appealed_at   = now();
+        $atem->save();
+
+        AtemAuditLogger::log(
+            $atem->id,
+            'appealed',
+            $actorId,
+            'Suspension appealed by staff #' . $actorId . '. Remark: ' . $remarks
+        );
+
+        $suspendedById = (int) $atem->suspended_by;
+        if ($suspendedById > 0 && $suspendedById !== $actorId) {
+            AtemNotification::create([
+                'recipient_staff_id' => $suspendedById,
+                'type'               => 'atem_appealed',
+                'atem_id'            => $atem->id,
+                'atem_message_id'    => null,
+                'payload'            => [
+                    'atem_title'  => $atem->title,
+                    'appealed_by' => $actorId,
+                    'reason'      => Str::limit($remarks, 120),
+                ],
+            ]);
+        }
+
+        return response()->json(['success' => true, 'data' => $atem]);
+    }
+
+    /**
      * Unsuspend a previously suspended ATEM card. Restores to the original pre-suspension
      * status and recalculates incentive.
      * Allowed by grade 4/5, SuperAdmin, or the card's Issuer only (enforced on frontend).
@@ -747,16 +853,13 @@ class AtemController extends Controller
             ), 422);
         }
 
-        $restoreStatusId = $atem->pre_suspension_status_id;
-        if (!$restoreStatusId) {
-            $restoreStatusId = DB::table('atem_statuses')
-                ->where('value', 'Active')
-                ->whereNull('deleted_at')
-                ->value('id');
-        }
-
-        $restoreStatus      = AtemStatus::find((int) $restoreStatusId);
-        $restoreStatusValue = $restoreStatus ? $restoreStatus->value : 'Active';
+        // Always restores to Active (not whatever status preceded the suspension) -
+        // the Issuer picks up from there and re-progresses the card normally.
+        $restoreStatusId = DB::table('atem_statuses')
+            ->where('value', 'Active')
+            ->whereNull('deleted_at')
+            ->value('id');
+        $restoreStatusValue = 'Active';
 
         $level   = $atem->levelStructure;
         $rule    = $atem->incentiveRule;
@@ -777,6 +880,7 @@ class AtemController extends Controller
 
         $atem->atem_status_id         = (int) $restoreStatusId;
         $atem->closed_by              = null;
+        $atem->closure_date           = null;
         $atem->a_incentive_amount     = $incentive['a'];
         $atem->r_incentive_amount     = $incentive['r'];
         $atem->total_incentive_amount = $incentive['total'];
@@ -784,6 +888,10 @@ class AtemController extends Controller
         $atem->claimable              = $incentive['claimable'];
         $atem->incentive_approved     = $incentiveApproved;
         $atem->updated_by             = $actorId;
+        // Reset appeal state so a future re-suspension can be appealed again.
+        $atem->appeal_remark          = null;
+        $atem->appealed_by            = null;
+        $atem->appealed_at            = null;
         $atem->save();
 
         AtemAuditLogger::log(

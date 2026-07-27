@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             AtemStatusSeeder::class,
             PillarSeeder::class,
             AddAtemTypeToExistingAtemsSeeder::class,
+            AddForceTerminateStatusSeeder::class,
         ]);
     }
 }
