@@ -464,14 +464,29 @@ class AtemController extends Controller
         $incentivisedRCount = $arciMembers->where('role', 'R')->where('is_incentivised', true)->count();
         $incentive = $this->calculator->calculate($level, $rule, $statusValue, $incentivisedACount, $incentivisedRCount);
 
+        // The calculator computes a/r/total purely from level+rule+incentivised
+        // counts - it has no notion of Suspended/Force Terminated. Once a card
+        // is (or has been) suspended or force-terminated, it is no longer
+        // eligible for incentive at all, so force every amount to zero
+        // regardless of what the calculator returned.
+        if (in_array($statusValue, ['Suspended', 'Force Terminated'], true)) {
+            $incentive['a'] = 0.0;
+            $incentive['r'] = 0.0;
+            $incentive['total'] = 0.0;
+            $incentive['claimable'] = false;
+        }
+
         // Determine the final (approved/actual) incentive payout amount.
+        // No incentive payout for: Failed (unsuccessful); Suspended/Force
+        // Terminated (no longer eligible at all); Extended/Completed with
+        // Extension (needed an extension, so it forfeits incentive regardless
+        // of the issuer's approve/deny decision - previously this deferred to
+        // incentive_approved instead of always being RM0).
         $approvedByIssuer = $request->boolean('incentive_approved', false);
-        if ($statusValue === 'Failed') {
+        $noIncentiveStatuses = ['Failed', 'Suspended', 'Force Terminated', 'Extended', 'Completed with Extension'];
+        if (in_array($statusValue, $noIncentiveStatuses, true)) {
             $finalIncentive   = 0.0;
             $approvedByIssuer = false;
-        } elseif ($isExtended) {
-            // Issuer explicitly approves or denies the estimated total.
-            $finalIncentive = $approvedByIssuer ? $incentive['total'] : 0.0;
         } elseif (in_array($statusValue, ['Completed', 'Completed with Excellence'], true)) {
             $finalIncentive   = $incentive['total'];
             $approvedByIssuer = true;
