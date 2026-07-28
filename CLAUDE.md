@@ -6,7 +6,6 @@
 - **Runtime:** Laragon on Windows (`C:\laragon\www\atem-api`)
 - **Database:** MySQL, database name `atem_api`
 - **ODB Frontend (Production):** `C:\xampp\htdocs\odb\atem`
-- **ODB Frontend (Staging):** `C:\xampp\htdocs\odb\atem-staging`
 - **ODB Frontend (Local dev):** `C:\laragon\www\odb\atem` — run this locally via Laragon against this API during development
 - Always check the relevant frontend copy alongside any API change.
 
