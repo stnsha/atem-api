@@ -8,6 +8,7 @@ use App\Models\AtemStatus;
 use App\Models\IncentiveRule;
 use App\Models\LevelStructure;
 use App\Models\Pillar;
+use App\Models\RewardMasterlist;
 use App\Services\AtemAuditLogger;
 use App\Services\IncentiveCalculatorService;
 use Carbon\Carbon;
@@ -35,10 +36,11 @@ class AtemController extends Controller
         return response()->json([
             'success' => true,
             'data'    => [
-                'levels'   => LevelStructure::orderBy('id')->get(),
-                'rules'    => IncentiveRule::orderBy('id')->get(),
-                'statuses' => AtemStatus::orderBy('id')->get(),
-                'pillars'  => Pillar::orderBy('id')->get(),
+                'levels'           => LevelStructure::orderBy('id')->get(),
+                'rules'            => IncentiveRule::orderBy('id')->get(),
+                'statuses'         => AtemStatus::orderBy('id')->get(),
+                'pillars'          => Pillar::orderBy('id')->get(),
+                'reward_masterlist' => RewardMasterlist::where('is_active', true)->orderBy('id')->get(),
             ],
         ]);
     }
@@ -86,6 +88,7 @@ class AtemController extends Controller
             'pillar_id'              => 'nullable|integer|exists:pillars,id',
             'reward_amount'          => 'nullable|numeric',
             'deduction_amount'       => 'nullable|numeric',
+            'reward_label'           => 'nullable|string|max:255',
             'outlet_ids'             => 'nullable|array',
             'outlet_ids.*'           => 'integer',
             'area_manager_ids'       => 'nullable|array',
@@ -162,6 +165,7 @@ class AtemController extends Controller
                 'pillar_id'              => $data['pillar_id'] ?? null,
                 'reward_amount'          => $data['reward_amount'] ?? null,
                 'deduction_amount'       => $data['deduction_amount'] ?? null,
+                'reward_label'           => $data['reward_label'] ?? null,
                 'level_structure_id'     => $data['level_structure_id'] ?? null,
                 'incentive_rule_id'      => $data['incentive_rule_id'] ?? null,
                 'atem_status_id'         => $statusId,
@@ -271,7 +275,7 @@ class AtemController extends Controller
             'closure_date', 'is_extended', 'extension_count',
             'a_incentive_amount', 'r_incentive_amount', 'total_incentive_amount',
             'final_incentive_amount', 'reward_amount', 'deduction_amount',
-            'final_amount', 'total_reward_amount',
+            'final_amount', 'total_reward_amount', 'reward_label',
             'claimable', 'created_at', 'deleted_at',
             'payout_status', 'payout_remark', 'payout_updated_by', 'payout_updated_at',
             'payout_closed_by', 'payout_closed_at',
@@ -330,6 +334,7 @@ class AtemController extends Controller
             'pillar_id'          => 'nullable|integer|exists:pillars,id',
             'reward_amount'      => 'nullable|numeric',
             'deduction_amount'   => 'nullable|numeric',
+            'reward_label'       => 'nullable|string|max:255',
             'is_deducted'        => 'nullable|boolean',
             'outlet_ids'         => 'nullable|array',
             'outlet_ids.*'       => 'integer',
@@ -434,17 +439,24 @@ class AtemController extends Controller
         }
 
         // Closure date is the date the ATEM was actually closed (terminal status),
-        // not the Final Due Date. Preserve it if already set on a re-save.
+        // not the Final Due Date. Preserve it if already set on a re-save. Force
+        // Terminated also permanently closes the card and needs the same
+        // closure_date/closed_by capture, but is deliberately kept out of
+        // $closingStatuses itself - that array also gates Outlet final_amount
+        // below, and a force-terminated card must never get a signed reward/
+        // deduction amount (mirrors the Suspended/Force Terminated no-incentive
+        // rule used elsewhere in this method).
         $closingStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension', 'Failed'];
+        $closesCard = in_array($statusValue, $closingStatuses, true) || $statusValue === 'Force Terminated';
         $closedBy = $atem->closed_by;
         // SuperAdmin reverting a terminal card to Draft clears closure tracking.
         if (!empty($data['superadmin_override']) && $statusValue === 'Draft') {
             $closedBy = null;
-        } elseif (!in_array($statusValue, $closingStatuses, true) && !($isExtended && $ext1)) {
+        } elseif (!$closesCard && !($isExtended && $ext1)) {
             // Reverting to a non-closing, non-extended status (e.g. issuer reverts Completed → Active/Draft).
             $closedBy = null;
         }
-        if ($statusValue !== null && in_array($statusValue, $closingStatuses, true)) {
+        if ($statusValue !== null && $closesCard) {
             $closureDate = $atem->closure_date ?: now()->toDateString();
             // Only record closed_by on the first transition into a terminal status.
             if ($closedBy === null) {
@@ -511,8 +523,17 @@ class AtemController extends Controller
             'title'                  => $data['title'],
             'description'            => $data['description'] ?? null,
             'pillar_id'              => $data['pillar_id'] ?? null,
-            'reward_amount'          => $data['reward_amount'] ?? null,
-            'deduction_amount'       => $data['deduction_amount'] ?? null,
+            // edit.php no longer has reward_amount/deduction_amount fields (retired
+            // in favor of reward_label) - fall back to the existing values instead
+            // of null so a generic save never silently wipes historical data on
+            // cards created before that migration.
+            'reward_amount'          => $data['reward_amount'] ?? $atem->reward_amount,
+            'deduction_amount'       => $data['deduction_amount'] ?? $atem->deduction_amount,
+            // Distinguish "field omitted" (preserve existing label) from
+            // "explicitly cleared to None" (array_key_exists sees the key even
+            // when its value is null; ?? would treat both the same and could
+            // never actually clear a previously-chosen label).
+            'reward_label'           => array_key_exists('reward_label', $data) ? $data['reward_label'] : $atem->reward_label,
             'final_amount'           => $finalAmount,
             'level_structure_id'     => $data['level_structure_id'] ?? null,
             'incentive_rule_id'      => $data['incentive_rule_id'] ?? null,
