@@ -20,6 +20,7 @@ class Atem extends Model
         'issuer_staff_id',
         'staff_dept_id',
         'atem_type',
+        'okr_id',
         'pillar_id',
         'reward_mechanism_id',
         'total_reward_amount',

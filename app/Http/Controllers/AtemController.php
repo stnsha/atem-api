@@ -85,6 +85,7 @@ class AtemController extends Controller
             'issuer_staff_id'        => 'nullable|integer',
             'staff_dept_id'          => 'nullable|integer',
             'atem_type'              => 'nullable|integer|in:1,2',
+            'okr_id'                 => 'nullable|integer',
             'pillar_id'              => 'nullable|integer|exists:pillars,id',
             'reward_amount'          => 'nullable|numeric',
             'deduction_amount'       => 'nullable|numeric',
@@ -162,6 +163,7 @@ class AtemController extends Controller
                 'issuer_staff_id'        => $data['issuer_staff_id'] ?? null,
                 'staff_dept_id'          => $data['staff_dept_id'] ?? null,
                 'atem_type'              => $data['atem_type'] ?? 1,
+                'okr_id'                 => $data['okr_id'] ?? null,
                 'pillar_id'              => $data['pillar_id'] ?? null,
                 'reward_amount'          => $data['reward_amount'] ?? null,
                 'deduction_amount'       => $data['deduction_amount'] ?? null,
@@ -269,7 +271,7 @@ class AtemController extends Controller
 
         $atems = $query->get([
             'id', 'title', 'issuer_staff_id', 'staff_dept_id',
-            'atem_type', 'pillar_id',
+            'atem_type', 'okr_id', 'pillar_id',
             'level_structure_id', 'incentive_rule_id', 'atem_status_id',
             'start_date', 'end_date', 'extended_date_1', 'final_due_date',
             'closure_date', 'is_extended', 'extension_count',
@@ -1017,6 +1019,40 @@ class AtemController extends Controller
         return response()->json([
             'success' => true,
             'data'    => $atem->fresh(['status']),
+        ]);
+    }
+
+    /**
+     * Set (or clear, when okr_id is omitted/null) the OKR card this ATEM is
+     * linked back to. Deliberately separate from update() - that method
+     * requires a full edit-form payload (title, etc.) and runs unrelated
+     * business logic (status transitions, completion-attachment gating),
+     * neither of which applies when an OKR Key Result just links an
+     * already-existing ATEM. Newly-created ATEMs get okr_id set directly in
+     * store() instead; this endpoint is only for the "link existing" path.
+     */
+    public function linkOkr(int $id, Request $request): JsonResponse
+    {
+        $atem = Atem::findOrFail($id);
+
+        $data = $request->validate([
+            'okr_id'   => 'nullable|integer',
+            'actor_id' => 'nullable|integer',
+        ]);
+
+        $atem->okr_id = $data['okr_id'] ?? null;
+        $atem->save();
+
+        AtemAuditLogger::log(
+            $atem->id,
+            'okr_linked',
+            $data['actor_id'] ?? null,
+            $atem->okr_id ? ('Linked to OKR #' . $atem->okr_id) : 'OKR link cleared'
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $atem->fresh(),
         ]);
     }
 
