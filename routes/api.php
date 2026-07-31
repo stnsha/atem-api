@@ -60,6 +60,7 @@ Route::middleware('auth:api')->group(function () {
     Route::post('/atem/{id}/unsuspend', [AtemController::class, 'unsuspend'])->whereNumber('id');
     Route::post('/atem/{id}/appeal', [AtemController::class, 'appeal'])->whereNumber('id');
     Route::put('/atem/{id}/suspended-fields', [AtemController::class, 'updateSuspendedFields'])->whereNumber('id');
+    Route::put('/atem/{id}/closure-date', [AtemController::class, 'updateClosureDate'])->whereNumber('id');
     Route::patch('/atem/{id}/payout-status', [AtemController::class, 'updatePayoutStatus'])->whereNumber('id');
     Route::patch('/atem/{id}/okr-link', [AtemController::class, 'linkOkr'])->whereNumber('id');
     Route::patch('/atem/payout-status/bulk-lock',   [AtemController::class, 'bulkLockPayout']);

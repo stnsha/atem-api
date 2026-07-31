@@ -354,6 +354,10 @@ class AtemController extends Controller
             'incentive_approved'  => 'boolean',
             'finalize'            => 'boolean',
             'superadmin_override' => 'nullable|boolean',
+            // Only honoured for the narrow post-unsuspend case handled below,
+            // where it must fall between the card's start_date and today
+            // (range-checked there, since start_date is per-record).
+            'closure_date'        => 'nullable|date',
         ]);
 
         $level  = !empty($data['level_structure_id']) ? LevelStructure::find($data['level_structure_id']) : null;
@@ -458,8 +462,32 @@ class AtemController extends Controller
             // Reverting to a non-closing, non-extended status (e.g. issuer reverts Completed → Active/Draft).
             $closedBy = null;
         }
+        // A card restored from suspension into Completed/Completed with Excellence
+        // (see AtemController::unsuspend()) is deliberately saved with closure_date
+        // left null, since the original date is not recoverable. This is the only
+        // path that can produce "already Completed-family, but closure_date is
+        // null" - so it doubles as the signal that the Issuer is now filling in
+        // that date. The replacement must fall between the card's start_date and
+        // today (mirrors the odb frontend's picker min/max and validateFinal()).
+        $completedOnlyStatuses = ['Completed', 'Completed with Excellence'];
+        $pendingClosureDateEntry = $atem->closure_date === null
+            && in_array($originalStatusValue, $completedOnlyStatuses, true)
+            && in_array($statusValue, $completedOnlyStatuses, true);
+
         if ($statusValue !== null && $closesCard) {
-            $closureDate = $atem->closure_date ?: now()->toDateString();
+            if ($pendingClosureDateEntry && !empty($data['closure_date'])) {
+                $newClosure = Carbon::parse($data['closure_date'])->startOfDay();
+                $closureMin = $atem->start_date ? Carbon::parse($atem->start_date)->startOfDay() : null;
+                if (($closureMin && $newClosure->lt($closureMin)) || $newClosure->gt(now()->startOfDay())) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Closure date must be between the start date and today.',
+                    ], 422);
+                }
+                $closureDate = $newClosure->toDateString();
+            } else {
+                $closureDate = $atem->closure_date ?: now()->toDateString();
+            }
             // Only record closed_by on the first transition into a terminal status.
             if ($closedBy === null) {
                 $closedBy = $data['updated_by'] ?? null;
@@ -479,11 +507,14 @@ class AtemController extends Controller
         $incentive = $this->calculator->calculate($level, $rule, $statusValue, $incentivisedACount, $incentivisedRCount);
 
         // The calculator computes a/r/total purely from level+rule+incentivised
-        // counts - it has no notion of Suspended/Force Terminated. Once a card
-        // is (or has been) suspended or force-terminated, it is no longer
-        // eligible for incentive at all, so force every amount to zero
-        // regardless of what the calculator returned.
-        if (in_array($statusValue, ['Suspended', 'Force Terminated'], true)) {
+        // counts - it has no notion of Suspended/Force Terminated. A suspension
+        // is a pause, not a forfeiture: the computed a/r/total breakdown is
+        // preserved (matching suspend()) and only the payable final amount is
+        // zeroed below; a force-terminated card is permanently ineligible, so
+        // every amount is forced to zero regardless of the calculator.
+        if ($statusValue === 'Suspended') {
+            $incentive['claimable'] = false;
+        } elseif ($statusValue === 'Force Terminated') {
             $incentive['a'] = 0.0;
             $incentive['r'] = 0.0;
             $incentive['total'] = 0.0;
@@ -656,6 +687,72 @@ class AtemController extends Controller
     }
 
     /**
+     * PUT /api/atem/{id}/closure-date
+     * Directly sets the closure date on a card in any status except Draft,
+     * Active, Failed, or Deleted. Authorization (CEO grade 5 or SuperAdmin)
+     * is enforced by odb's api.php before the call reaches here - same trust
+     * model as bulkLockPayout()/bulkUnlockPayout().
+     */
+    public function updateClosureDate(int $id, Request $request): JsonResponse
+    {
+        $atem = Atem::with('status')->findOrFail($id);
+
+        $statusValue = $atem->status ? $atem->status->value : '';
+        if (in_array($statusValue, ['Draft', 'Active', 'Failed', 'Deleted'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Closure date cannot be set while the card status is "' . $statusValue . '".',
+            ], 422);
+        }
+
+        if ($atem->payout_status === 'Closed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Closure date cannot be changed after the payout has been closed.',
+            ], 403);
+        }
+
+        $actorId = (int) $request->input('actor_id', 0);
+        if ($actorId === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Actor ID is required.',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'closure_date' => 'required|date',
+        ]);
+
+        $newClosure = Carbon::parse($data['closure_date'])->startOfDay();
+        $closureMin = $atem->start_date ? Carbon::parse($atem->start_date)->startOfDay() : null;
+        if (($closureMin && $newClosure->lt($closureMin)) || $newClosure->gt(now()->startOfDay())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Closure date must be between the start date and today.',
+            ], 422);
+        }
+
+        $previous = $atem->closure_date ? Carbon::parse($atem->closure_date)->toDateString() : null;
+        $atem->closure_date = $newClosure->toDateString();
+        $atem->updated_by   = $actorId;
+        $atem->save();
+
+        AtemAuditLogger::log(
+            $atem->id,
+            'closure_date_updated',
+            $actorId,
+            'Closure date changed from ' . ($previous ?: 'none') . ' to ' . $newClosure->toDateString()
+                . ' by staff #' . $actorId
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $atem->fresh(['arci', 'referenceLinks', 'attachments', 'status']),
+        ]);
+    }
+
+    /**
      * DELETE /api/atem/{id}
      * Soft-deletes an ATEM of any status. Only the Issuer may delete Draft/Active/Extended/Suspended
      * cards; a SuperAdmin may delete any ATEM regardless of status.
@@ -769,9 +866,9 @@ class AtemController extends Controller
         // Suspending is a pause, not a closure - the suspend date must not be
         // conflated with (or displayed as) the Closure Date.
         $atem->closure_date           = null;
-        $atem->a_incentive_amount     = 0.0;
-        $atem->r_incentive_amount     = 0.0;
-        $atem->total_incentive_amount = 0.0;
+        // a/r/total incentive amounts reflect the computed breakdown and must
+        // survive suspension - only the payable final amount is zeroed while
+        // the card is paused.
         $atem->final_incentive_amount = 0.0;
         $atem->claimable              = false;
         $atem->incentive_approved     = false;
@@ -891,13 +988,16 @@ class AtemController extends Controller
             ), 422);
         }
 
-        // Always restores to Active (not whatever status preceded the suspension) -
-        // the Issuer picks up from there and re-progresses the card normally.
-        $restoreStatusId = DB::table('atem_statuses')
-            ->where('value', 'Active')
-            ->whereNull('deleted_at')
-            ->value('id');
-        $restoreStatusValue = 'Active';
+        // Restores to whatever status preceded the suspension, captured on
+        // suspend() as pre_suspension_status_id. Falls back to Active only for
+        // suspended records predating that column.
+        $preStatus = $atem->pre_suspension_status_id
+            ? DB::table('atem_statuses')->where('id', $atem->pre_suspension_status_id)->whereNull('deleted_at')->first()
+            : null;
+        $restoreStatusId    = $preStatus
+            ? (int) $preStatus->id
+            : (int) DB::table('atem_statuses')->where('value', 'Active')->whereNull('deleted_at')->value('id');
+        $restoreStatusValue = $preStatus ? $preStatus->value : 'Active';
 
         $level   = $atem->levelStructure;
         $rule    = $atem->incentiveRule;
@@ -906,19 +1006,38 @@ class AtemController extends Controller
         $incentivisedRCount = $arci->where('role', 'R')->where('is_incentivised', true)->count();
         $incentive = $this->calculator->calculate($level, $rule, $restoreStatusValue, $incentivisedACount, $incentivisedRCount);
 
+        $completedStatuses = array('Completed', 'Completed with Excellence');
+        $closingStatuses   = array('Completed', 'Completed with Excellence', 'Completed with Extension', 'Failed');
+
         $finalIncentive    = 0.0;
         $incentiveApproved = false;
-        if (in_array($restoreStatusValue, array('Completed', 'Completed with Excellence'), true)) {
-            $finalIncentive    = $incentive['total'];
-            $incentiveApproved = true;
-        } elseif ($restoreStatusValue === 'Extended' && $atem->incentive_approved) {
+        if (in_array($restoreStatusValue, $completedStatuses, true)) {
             $finalIncentive    = $incentive['total'];
             $incentiveApproved = true;
         }
 
-        $atem->atem_status_id         = (int) $restoreStatusId;
-        $atem->closed_by              = null;
-        $atem->closure_date           = null;
+        if (in_array($restoreStatusValue, $completedStatuses, true)) {
+            // The original closure date was cleared by suspend() and cannot be
+            // recovered, so it is deliberately left blank here - the Issuer sets
+            // it explicitly afterward (see AtemController::update()'s handling
+            // of a Completed/Completed with Excellence card with no closure_date).
+            $closureDate = null;
+            $closedBy    = null;
+        } elseif (in_array($restoreStatusValue, $closingStatuses, true)) {
+            // Failed / Completed with Extension: normal closing behaviour, same
+            // as a fresh transition into a closing status elsewhere.
+            $closureDate = now()->toDateString();
+            $closedBy    = $actorId;
+        } else {
+            // Draft / Active / Extended: not a closing status, no closure date.
+            $closureDate = null;
+            $closedBy    = null;
+        }
+
+        $atem->atem_status_id           = $restoreStatusId;
+        $atem->pre_suspension_status_id = null;
+        $atem->closed_by              = $closedBy;
+        $atem->closure_date           = $closureDate;
         $atem->a_incentive_amount     = $incentive['a'];
         $atem->r_incentive_amount     = $incentive['r'];
         $atem->total_incentive_amount = $incentive['total'];
