@@ -462,20 +462,19 @@ class AtemController extends Controller
             // Reverting to a non-closing, non-extended status (e.g. issuer reverts Completed → Active/Draft).
             $closedBy = null;
         }
-        // A card restored from suspension into Completed/Completed with Excellence
-        // (see AtemController::unsuspend()) is deliberately saved with closure_date
-        // left null, since the original date is not recoverable. This is the only
-        // path that can produce "already Completed-family, but closure_date is
-        // null" - so it doubles as the signal that the Issuer is now filling in
-        // that date. The replacement must fall between the card's start_date and
-        // today (mirrors the odb frontend's picker min/max and validateFinal()).
-        $completedOnlyStatuses = ['Completed', 'Completed with Excellence'];
-        $pendingClosureDateEntry = $atem->closure_date === null
-            && in_array($originalStatusValue, $completedOnlyStatuses, true)
-            && in_array($statusValue, $completedOnlyStatuses, true);
+        // A null closure_date at this point means the card doesn't have a real one
+        // yet - either this save is the one actually closing it for the first
+        // time (Issuer moving it into a closing status), or it's being restored
+        // from suspension back into Completed/Completed with Excellence with the
+        // original date unrecoverable (see AtemController::unsuspend()). Either
+        // way the person saving may pick the actual closure date themselves,
+        // constrained to start_date..today (mirrors the odb frontend's picker
+        // min/max and validateFinal()). Re-saving an already-closed card
+        // (closure_date already set) always preserves the existing value instead.
+        $canSetClosureDate = $atem->closure_date === null;
 
         if ($statusValue !== null && $closesCard) {
-            if ($pendingClosureDateEntry && !empty($data['closure_date'])) {
+            if ($canSetClosureDate && !empty($data['closure_date'])) {
                 $newClosure = Carbon::parse($data['closure_date'])->startOfDay();
                 $closureMin = $atem->start_date ? Carbon::parse($atem->start_date)->startOfDay() : null;
                 if (($closureMin && $newClosure->lt($closureMin)) || $newClosure->gt(now()->startOfDay())) {
