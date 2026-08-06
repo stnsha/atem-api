@@ -99,6 +99,7 @@ Route::middleware('auth:api')->group(function () {
     // ATEM attachments
     Route::get('/atem/{id}/attachments',                    [AtemAttachmentController::class, 'index'])->whereNumber('id');
     Route::post('/atem/{id}/attachments',                   [AtemAttachmentController::class, 'store'])->whereNumber('id');
+    Route::patch('/atem/{id}/attachments/{attId}',          [AtemAttachmentController::class, 'update'])->whereNumber('id')->whereNumber('attId');
     Route::delete('/atem/{id}/attachments/{attId}',         [AtemAttachmentController::class, 'destroy'])->whereNumber('id')->whereNumber('attId');
     Route::get('/atem/{id}/attachments/{attId}/download',   [AtemAttachmentController::class, 'download'])->whereNumber('id')->whereNumber('attId');
 });

@@ -20,10 +20,12 @@ class AtemAttachment extends Model
         'size',
         'content',
         'uploaded_by',
+        'is_reference_outcome',
     ];
 
     protected $casts = [
         'size' => 'integer',
+        'is_reference_outcome' => 'boolean',
     ];
 
     // The base64 payload is large and must never leak into list/JSON responses.

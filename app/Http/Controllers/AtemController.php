@@ -364,19 +364,19 @@ class AtemController extends Controller
         $statusValue = $status ? $status->value : null;
 
         // Marking a card Completed/Completed with Excellence/Completed with Extension
-        // requires an "Outcome Attachment" reference link (case-insensitive, exact
-        // title match) - mirrors the client-side check in edit.js's validateFinal(),
-        // enforced here too since reference links are a separate resource the client
-        // could otherwise bypass this check for via a direct API call.
+        // requires at least one attachment flagged is_reference_outcome - mirrors the
+        // client-side check in edit.js's validateFinal(), enforced here too since
+        // attachments are a separate resource the client could otherwise bypass this
+        // check for via a direct API call.
         $completionStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension'];
         if (in_array($statusValue, $completionStatuses, true)) {
-            $hasOutcomeAttachment = $atem->referenceLinks()
-                ->whereRaw('LOWER(TRIM(name)) = ?', ['outcome attachment'])
+            $hasReferenceOutcome = $atem->attachments()
+                ->where('is_reference_outcome', true)
                 ->exists();
-            if (!$hasOutcomeAttachment) {
+            if (!$hasReferenceOutcome) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'A Reference Link titled "Outcome Attachment" is required before saving as ' . $statusValue . '.',
+                    'message' => 'At least one attachment must be marked as the reference outcome before saving as ' . $statusValue . '.',
                 ], 422);
             }
         }

@@ -72,6 +72,36 @@ class AtemAttachmentController extends Controller
     }
 
     /**
+     * PATCH /api/atem/{id}/attachments/{attId}
+     * Toggles whether this attachment is marked as the reference outcome.
+     */
+    public function update(Request $request, int $id, int $attId): JsonResponse
+    {
+        $atem = Atem::findOrFail($id);
+
+        $request->validate([
+            'is_reference_outcome' => 'required|boolean',
+        ]);
+
+        $att = AtemAttachment::where('atem_id', $atem->id)->where('id', $attId)->firstOrFail();
+        $att->is_reference_outcome = $request->boolean('is_reference_outcome');
+        $att->save();
+
+        $actorId = $request->input('actor_id');
+        AtemAuditLogger::log(
+            $atem->id,
+            $att->is_reference_outcome ? 'attachment_marked_reference_outcome' : 'attachment_unmarked_reference_outcome',
+            $actorId ? (int) $actorId : null,
+            ($att->is_reference_outcome ? 'Marked ' : 'Unmarked ') . $att->name . ' as reference outcome.'
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->attachments($atem->id),
+        ]);
+    }
+
+    /**
      * DELETE /api/atem/{id}/attachments/{attId}
      */
     public function destroy(Request $request, int $id, int $attId): JsonResponse
@@ -118,6 +148,6 @@ class AtemAttachmentController extends Controller
     {
         return AtemAttachment::where('atem_id', $atemId)
             ->orderBy('id')
-            ->get(['id', 'atem_id', 'name', 'type', 'size', 'created_at']);
+            ->get(['id', 'atem_id', 'name', 'type', 'size', 'is_reference_outcome', 'created_at']);
     }
 }
