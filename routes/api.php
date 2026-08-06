@@ -13,7 +13,6 @@ use App\Http\Controllers\AtemReferenceLinkController;
 use App\Http\Controllers\AtemStatusController;
 use App\Http\Controllers\IncentiveRuleController;
 use App\Http\Controllers\LevelStructureController;
-use App\Http\Controllers\RewardMasterlistController;
 use App\Http\Controllers\TableauApiController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -44,11 +43,6 @@ Route::middleware('auth:api')->group(function () {
     Route::get('/atem/levels',   [LevelStructureController::class, 'index']);
     Route::get('/atem/rules',    [IncentiveRuleController::class, 'index']);
     Route::get('/atem/statuses', [AtemStatusController::class, 'index']);
-
-    // Reward masterlist (Outlet ATEM reward tiers)
-    Route::get('/reward-masterlist',      [RewardMasterlistController::class, 'index']);
-    Route::post('/reward-masterlist',     [RewardMasterlistController::class, 'store']);
-    Route::put('/reward-masterlist/{id}', [RewardMasterlistController::class, 'update'])->whereNumber('id');
 
     // ATEM cards
     Route::get('/atem',       [AtemController::class, 'index']);

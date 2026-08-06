@@ -8,7 +8,6 @@ use App\Models\AtemStatus;
 use App\Models\IncentiveRule;
 use App\Models\LevelStructure;
 use App\Models\Pillar;
-use App\Models\RewardMasterlist;
 use App\Services\AtemAuditLogger;
 use App\Services\IncentiveCalculatorService;
 use Carbon\Carbon;
@@ -36,11 +35,10 @@ class AtemController extends Controller
         return response()->json([
             'success' => true,
             'data'    => [
-                'levels'           => LevelStructure::orderBy('id')->get(),
-                'rules'            => IncentiveRule::orderBy('id')->get(),
-                'statuses'         => AtemStatus::orderBy('id')->get(),
-                'pillars'          => Pillar::orderBy('id')->get(),
-                'reward_masterlist' => RewardMasterlist::where('is_active', true)->orderBy('id')->get(),
+                'levels'   => LevelStructure::orderBy('id')->get(),
+                'rules'    => IncentiveRule::orderBy('id')->get(),
+                'statuses' => AtemStatus::orderBy('id')->get(),
+                'pillars'  => Pillar::orderBy('id')->get(),
             ],
         ]);
     }
