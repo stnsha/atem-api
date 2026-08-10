@@ -18,6 +18,11 @@ class AtemReferenceLink extends Model
         'name',
         'url',
         'added_by',
+        'is_reference_outcome',
+    ];
+
+    protected $casts = [
+        'is_reference_outcome' => 'boolean',
     ];
 
     public function atem(): BelongsTo

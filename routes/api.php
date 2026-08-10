@@ -69,6 +69,7 @@ Route::middleware('auth:api')->group(function () {
     // ATEM reference links
     Route::get('/atem/{id}/reference-links',             [AtemReferenceLinkController::class, 'index'])->whereNumber('id');
     Route::post('/atem/{id}/reference-links',            [AtemReferenceLinkController::class, 'store'])->whereNumber('id');
+    Route::patch('/atem/{id}/reference-links/{linkId}',  [AtemReferenceLinkController::class, 'update'])->whereNumber('id')->whereNumber('linkId');
     Route::delete('/atem/{id}/reference-links/{linkId}', [AtemReferenceLinkController::class, 'destroy'])->whereNumber('id')->whereNumber('linkId');
 
     // ATEM progress updates

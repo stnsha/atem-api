@@ -352,9 +352,7 @@ class AtemController extends Controller
             'incentive_approved'  => 'boolean',
             'finalize'            => 'boolean',
             'superadmin_override' => 'nullable|boolean',
-            // Only honoured for the narrow post-unsuspend case handled below,
-            // where it must fall between the card's start_date and today
-            // (range-checked there, since start_date is per-record).
+            // Only honoured for the narrow post-unsuspend case handled below.
             'closure_date'        => 'nullable|date',
         ]);
 
@@ -364,19 +362,19 @@ class AtemController extends Controller
         $statusValue = $status ? $status->value : null;
 
         // Marking a card Completed/Completed with Excellence/Completed with Extension
-        // requires at least one attachment flagged is_reference_outcome - mirrors the
-        // client-side check in edit.js's validateFinal(), enforced here too since
-        // attachments are a separate resource the client could otherwise bypass this
-        // check for via a direct API call.
+        // requires at least one attachment or reference link flagged
+        // is_reference_outcome - mirrors the client-side check in edit.js's
+        // validateFinal(), enforced here too since attachments/reference links are
+        // separate resources the client could otherwise bypass this check for via a
+        // direct API call.
         $completionStatuses = ['Completed', 'Completed with Excellence', 'Completed with Extension'];
         if (in_array($statusValue, $completionStatuses, true)) {
-            $hasReferenceOutcome = $atem->attachments()
-                ->where('is_reference_outcome', true)
-                ->exists();
+            $hasReferenceOutcome = $atem->attachments()->where('is_reference_outcome', true)->exists()
+                || $atem->referenceLinks()->where('is_reference_outcome', true)->exists();
             if (!$hasReferenceOutcome) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'At least one attachment must be marked as the reference outcome before saving as ' . $statusValue . '.',
+                    'message' => 'At least one attachment or reference link must be marked as the reference outcome before saving as ' . $statusValue . '.',
                 ], 422);
             }
         }
@@ -466,22 +464,15 @@ class AtemController extends Controller
         // from suspension back into Completed/Completed with Excellence with the
         // original date unrecoverable (see AtemController::unsuspend()). Either
         // way the person saving may pick the actual closure date themselves,
-        // constrained to start_date..today (mirrors the odb frontend's picker
-        // min/max and validateFinal()). Re-saving an already-closed card
-        // (closure_date already set) always preserves the existing value instead.
+        // freely - no start_date..today range restriction (mirrors the odb
+        // frontend's picker having no min/max). Re-saving an already-closed
+        // card (closure_date already set) always preserves the existing value
+        // instead.
         $canSetClosureDate = $atem->closure_date === null;
 
         if ($statusValue !== null && $closesCard) {
             if ($canSetClosureDate && !empty($data['closure_date'])) {
-                $newClosure = Carbon::parse($data['closure_date'])->startOfDay();
-                $closureMin = $atem->start_date ? Carbon::parse($atem->start_date)->startOfDay() : null;
-                if (($closureMin && $newClosure->lt($closureMin)) || $newClosure->gt(now()->startOfDay())) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Closure date must be between the start date and today.',
-                    ], 422);
-                }
-                $closureDate = $newClosure->toDateString();
+                $closureDate = Carbon::parse($data['closure_date'])->toDateString();
             } else {
                 $closureDate = $atem->closure_date ?: now()->toDateString();
             }
@@ -722,13 +713,6 @@ class AtemController extends Controller
         ]);
 
         $newClosure = Carbon::parse($data['closure_date'])->startOfDay();
-        $closureMin = $atem->start_date ? Carbon::parse($atem->start_date)->startOfDay() : null;
-        if (($closureMin && $newClosure->lt($closureMin)) || $newClosure->gt(now()->startOfDay())) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Closure date must be between the start date and today.',
-            ], 422);
-        }
 
         $previous = $atem->closure_date ? Carbon::parse($atem->closure_date)->toDateString() : null;
         $atem->closure_date = $newClosure->toDateString();
