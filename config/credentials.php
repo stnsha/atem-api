@@ -18,6 +18,15 @@ return [
         'password' => env('ODB_API_PASSWORD', ''),
     ],
 
+    // Separate credential from odb_api above - kept distinct so this new OKR
+    // Key Result reconciliation integration doesn't share (and can't
+    // accidentally break) the existing atem_api service account already
+    // relied on by StaffApiService/IidasMigrationService.
+    'okr_odb_api' => [
+        'username' => env('OKR_ODB_API_USERNAME', ''),
+        'password' => env('OKR_ODB_API_PASSWORD', ''),
+    ],
+
     'tableau' => [
         'username' => env('TABLEAU_USERNAME', ''),
         'password' => env('TABLEAU_PASSWORD', ''),
