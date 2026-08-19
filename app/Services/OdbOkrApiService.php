@@ -6,24 +6,16 @@ use Exception;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Calls the plain-PHP endpoints in ODB's C:\laragon\www\api\ folder that
- * bridge okr_key_results.atem_id back to atem-api - ODB and atem-api run on
+ * Calls the plain-PHP endpoints in ODB's api/ folder that bridge
+ * okr_key_results.atem_id back to atem-api - ODB and atem-api run on
  * separate servers, so this is a real HTTP call, not a shared DB connection
  * (see okr_key_result_id rename migration + ReconcileOkrKeyResultLinks
- * command). Uses its own okr_odb_api credential, distinct from odb_api used
- * elsewhere in this app.
+ * command). Reuses the existing odb_api service account (config/credentials
+ * odb_api, same one StaffApiService already uses against api_user) rather
+ * than a separate credential - no new DB row needed.
  */
 class OdbOkrApiService extends OctopusApiService
 {
-    public function __construct()
-    {
-        parent::__construct();
-        $this->setCredentials(
-            config('credentials.okr_odb_api.username') ?? '',
-            config('credentials.okr_odb_api.password') ?? ''
-        );
-    }
-
     /**
      * For each given ATEM id, find the okr_key_results row (if any) whose
      * atem_id points back to it. Returns a map:
