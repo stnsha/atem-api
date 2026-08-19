@@ -99,4 +99,70 @@ class OdbOkrApiService extends OctopusApiService
             return false;
         }
     }
+
+    /**
+     * Create a new okr_key_results row under $cardId (title copied from the
+     * ATEM), pre-linked to $atemId via atem_id. Used by the reconciliation
+     * command for orphaned atems.okr_key_result_id rows that have no
+     * matching Key Result at all - rather than just nulling those out, a
+     * Key Result is created to hold the link, using the ATEM's own title and
+     * attributing created_by to the ATEM's issuer.
+     * Returns the new key_result_id, or null on failure (e.g. the OKR card
+     * no longer exists).
+     *
+     * Start/end date, when given, are copied from the ATEM's own timeline
+     * onto the new Key Result (format Y-m-d) - omit either to leave it null.
+     * $statusValue, when given, is matched by value against ODB's
+     * okr_statuses (both modules use the same status name strings - Draft,
+     * Active, Completed, Completed with Excellence, Extended, Failed,
+     * Suspended, Completed with Extension - Force Terminated is OKR-only and
+     * never comes from an ATEM); falls back to "Active" when omitted or
+     * unmatched.
+     *
+     * @param int $cardId
+     * @param string $title
+     * @param int $atemId
+     * @param int $createdBy
+     * @param string|null $startDate
+     * @param string|null $endDate
+     * @param string|null $statusValue
+     * @return int|null
+     */
+    public function createKeyResultForAtem(int $cardId, string $title, int $atemId, int $createdBy, ?string $startDate = null, ?string $endDate = null, ?string $statusValue = null): ?int
+    {
+        try {
+            $result = $this->callAPI('POST', 'createOkrKeyResultForAtem.php', array(
+                'username'     => $this->username,
+                'password'     => $this->password,
+                'card_id'      => $cardId,
+                'title'        => $title,
+                'atem_id'      => $atemId,
+                'created_by'   => $createdBy,
+                'start_date'   => $startDate,
+                'end_date'     => $endDate,
+                'status_value' => $statusValue,
+            ));
+
+            if (isset($result['status']) && $result['status'] === 'success' && isset($result['key_result_id'])) {
+                return (int) $result['key_result_id'];
+            }
+
+            Log::warning('OdbOkrApiService: createKeyResultForAtem rejected', array(
+                'response' => $result,
+                'card_id'  => $cardId,
+                'atem_id'  => $atemId,
+            ));
+
+            return null;
+
+        } catch (Exception $e) {
+            Log::warning('OdbOkrApiService: createKeyResultForAtem failed', array(
+                'error'   => $e->getMessage(),
+                'card_id' => $cardId,
+                'atem_id' => $atemId,
+            ));
+
+            return null;
+        }
+    }
 }
