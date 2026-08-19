@@ -70,7 +70,6 @@ class ReconcileOkrKeyResultLinks extends Command
                 if ($match && $match['claim_count'] > 1) {
                     $warnings[] = "ATEM #{$atemId}: {$match['claim_count']} Key Results all claim this ATEM "
                         . "(lowest: KR #{$match['key_result_id']}, card #{$match['card_id']}) - left untouched, needs manual review.";
-                    $unchanged++;
                     continue;
                 }
 
