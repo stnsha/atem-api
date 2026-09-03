@@ -361,6 +361,19 @@ class AtemController extends Controller
         $status = !empty($data['atem_status_id']) ? AtemStatus::find($data['atem_status_id']) : null;
         $statusValue = $status ? $status->value : null;
 
+        // Every save MUST carry a resolvable status. A missing / null / unknown
+        // atem_status_id would otherwise be written straight to the column
+        // (fill() below does `$data['atem_status_id'] ?? null`), and a card with
+        // a NULL status silently slips past every status-keyed guard here - the
+        // extension lock, the incentive-forfeit rules, the closure logic - because
+        // they all compare against $atem->status->value. Reject it outright.
+        if (!$status) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A valid status is required to save this ATEM.',
+            ], 422);
+        }
+
         // Marking a card Completed/Completed with Excellence/Completed with Extension
         // requires at least one attachment or reference link flagged
         // is_reference_outcome - mirrors the client-side check in edit.js's
@@ -419,23 +432,30 @@ class AtemController extends Controller
             $finalDue = $ext1;
         }
 
-        // Once an extension date has been recorded, only Completed, Completed with Extension, Extended, or Failed are valid.
+        // Once an extension date has been recorded, a card may only close as
+        // "Completed with Extension" (which forfeits the incentive) or "Failed",
+        // or go back to "Extended". Plain "Completed" is deliberately NOT allowed
+        // here - routing an extended card through a revert and then closing it as
+        // plain "Completed" was the incentive-forfeit bypass.
         // If the card is already Completed with Extension, the issuer may only revert to Extended.
         // SuperAdmin may bypass this restriction (e.g. to revert a completed extended card to Draft).
+        // $status is guaranteed non-null by the guard above; a null new status is
+        // treated as a rejection here rather than silently skipping the check.
         if ($atem->is_extended && $atem->extended_date_1 && empty($data['superadmin_override'])) {
-            $newStatus = AtemStatus::find($data['atem_status_id'] ?? null);
+            $newStatusValue     = $status ? $status->value : null;
             $currentStatusValue = $atem->status ? $atem->status->value : null;
+            $extendedAllowed    = ['Completed with Extension', 'Extended', 'Failed'];
             if ($currentStatusValue === 'Completed with Extension') {
-                if ($newStatus && $newStatus->value !== 'Extended') {
+                if ($newStatusValue !== 'Extended') {
                     return response()->json([
                         'success' => false,
                         'message' => 'A "Completed with Extension" card can only be reverted to "Extended".',
                     ], 422);
                 }
-            } elseif ($newStatus && !in_array($newStatus->value, ['Completed', 'Completed with Extension', 'Extended', 'Failed'], true)) {
+            } elseif (!in_array($newStatusValue, $extendedAllowed, true)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Status cannot be changed to "' . $newStatus->value . '" once an extension date has been recorded. Only Completed, Completed with Extension, Extended, or Failed are permitted.',
+                    'message' => 'Status cannot be changed to "' . ($newStatusValue ?? 'unknown') . '" once an extension date has been recorded. Only Completed with Extension, Extended, or Failed are permitted.',
                 ], 422);
             }
         }
@@ -517,7 +537,22 @@ class AtemController extends Controller
         // incentive_approved instead of always being RM0).
         $approvedByIssuer = $request->boolean('incentive_approved', false);
         $noIncentiveStatuses = ['Failed', 'Suspended', 'Force Terminated', 'Extended', 'Completed with Extension'];
+
+        // A card that ever recorded an extension forfeits the incentive on ANY
+        // closure - including a plain "Completed". The normal flow can no longer
+        // reach that state (see the extension lock above), but a SuperAdmin
+        // override or historical data still can, so the forfeit is keyed on the
+        // extension history itself, not only on the literal target status string.
+        // Old ($atem->*) values are read here because fill() has not run yet, so
+        // even "un-tick Extended + set Completed" in one save still forfeits.
+        $hasExtensionRecorded = ($isExtended && $ext1)
+            || (int) $atem->extension_count > 0
+            || ($atem->is_extended && $atem->extended_date_1);
+
         if (in_array($statusValue, $noIncentiveStatuses, true)) {
+            $finalIncentive   = 0.0;
+            $approvedByIssuer = false;
+        } elseif ($hasExtensionRecorded && in_array($statusValue, ['Completed', 'Completed with Excellence'], true)) {
             $finalIncentive   = 0.0;
             $approvedByIssuer = false;
         } elseif (in_array($statusValue, ['Completed', 'Completed with Excellence'], true)) {
