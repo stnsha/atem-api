@@ -10,6 +10,7 @@ use App\Models\LevelStructure;
 use App\Models\Pillar;
 use App\Models\RewardMasterlist;
 use App\Services\AtemAuditLogger;
+use App\Services\AtemOverdueSweeper;
 use App\Services\IncentiveCalculatorService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -248,6 +249,8 @@ class AtemController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        AtemOverdueSweeper::sync();
+
         $includeDeleted = $request->query('include_deleted') == 1;
 
         $builder = $includeDeleted
@@ -292,6 +295,8 @@ class AtemController extends Controller
      */
     public function show(int $id): JsonResponse
     {
+        AtemOverdueSweeper::sync();
+
         $atem = Atem::withTrashed()->with([
             'arci',
             'referenceLinks',
@@ -495,7 +500,7 @@ class AtemController extends Controller
         // of the issuer's approve/deny decision - previously this deferred to
         // incentive_approved instead of always being RM0).
         $approvedByIssuer = $request->boolean('incentive_approved', false);
-        $noIncentiveStatuses = ['Failed', 'Suspended', 'Force Terminated', 'Extended', 'Completed with Extension'];
+        $noIncentiveStatuses = ['Failed', 'Suspended', 'Force Terminated', 'Extended', 'Completed with Extension', 'Overdue'];
         if (in_array($statusValue, $noIncentiveStatuses, true)) {
             $finalIncentive   = 0.0;
             $approvedByIssuer = false;
