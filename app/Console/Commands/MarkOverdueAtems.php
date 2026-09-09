@@ -9,7 +9,7 @@ use Illuminate\Console\Command;
 
 class MarkOverdueAtems extends Command
 {
-    protected $signature = 'atem:mark-overdue';
+    protected $signature = 'atem:mark-overdue {--dry-run : List the ATEM cards that would be marked Overdue without saving changes}';
 
     protected $description = 'Mark Active/Extended ATEM cards as Overdue once their due date has passed';
 
@@ -36,12 +36,26 @@ class MarkOverdueAtems extends Command
             ->whereDate('final_due_date', '<', $today)
             ->get();
 
+        $dryRun = (bool) $this->option('dry-run');
+
+        if ($atems->isEmpty()) {
+            $this->info('No ATEM cards are overdue.');
+            return 0;
+        }
+
+        $ids = $atems->pluck('id')->all();
+
+        if ($dryRun) {
+            $this->info("[dry-run] {$atems->count()} ATEM card(s) would be marked Overdue: " . implode(', ', $ids));
+            return 0;
+        }
+
         foreach ($atems as $atem) {
             $atem->atem_status_id = $overdueStatusId;
             $atem->save();
         }
 
-        $this->info("Marked {$atems->count()} ATEM card(s) as Overdue.");
+        $this->info("Marked {$atems->count()} ATEM card(s) as Overdue: " . implode(', ', $ids));
 
         return 0;
     }
