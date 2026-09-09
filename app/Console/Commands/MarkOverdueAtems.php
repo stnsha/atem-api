@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Atem;
 use App\Models\AtemStatus;
+use App\Services\AtemAuditLogger;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
@@ -11,7 +12,7 @@ class MarkOverdueAtems extends Command
 {
     protected $signature = 'atem:mark-overdue {--dry-run : List the ATEM cards that would be marked Overdue without saving changes}';
 
-    protected $description = 'Mark Active/Extended ATEM cards as Overdue once their due date has passed';
+    protected $description = 'Mark Active ATEM cards as Overdue once their end date has passed';
 
     public function handle(): int
     {
@@ -22,18 +23,18 @@ class MarkOverdueAtems extends Command
             return 1;
         }
 
-        $openStatusIds = AtemStatus::whereIn('value', ['Active', 'Extended'])->pluck('id');
+        $activeStatusId = AtemStatus::where('value', 'Active')->value('id');
 
-        if ($openStatusIds->isEmpty()) {
-            $this->info('No Active/Extended statuses found.');
+        if (!$activeStatusId) {
+            $this->info('No Active status found.');
             return 0;
         }
 
         $today = Carbon::today();
 
-        $atems = Atem::whereIn('atem_status_id', $openStatusIds)
-            ->whereNotNull('final_due_date')
-            ->whereDate('final_due_date', '<', $today)
+        $atems = Atem::where('atem_status_id', $activeStatusId)
+            ->whereNotNull('end_date')
+            ->whereDate('end_date', '<', $today)
             ->get();
 
         $dryRun = (bool) $this->option('dry-run');
@@ -52,7 +53,17 @@ class MarkOverdueAtems extends Command
 
         foreach ($atems as $atem) {
             $atem->atem_status_id = $overdueStatusId;
-            $atem->save();
+            $atem->saveQuietly();
+
+            AtemAuditLogger::log(
+                $atem->id,
+                'status_changed',
+                null,
+                'Automatically marked Overdue: end date passed while status was Active.',
+                [
+                    ['field' => 'atem_status_id', 'label' => 'Status', 'from' => 'Active', 'to' => 'Overdue'],
+                ]
+            );
         }
 
         $this->info("Marked {$atems->count()} ATEM card(s) as Overdue: " . implode(', ', $ids));
