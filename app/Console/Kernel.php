@@ -12,7 +12,7 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        $schedule->command('atem:mark-overdue')->dailyAt('00:00');
+        //
     }
 
     /**

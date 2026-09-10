@@ -509,20 +509,58 @@ class AtemController extends Controller
             $closureDate = null;
         }
 
+        // An Active card may only close as plain "Completed" / "Completed with
+        // Excellence" when it actually finished on time - i.e. its closure_date
+        // falls within [start_date, end_date] inclusive. A late finish must be
+        // routed through "Completed with Extension" (which forfeits the
+        // incentive); it must never be saved as plain Completed. Extended cards
+        // are already handled by the extension-lock guard above. Mirrors the
+        // client-side check in edit.js validateFinal().
+        $plainCompletionStatuses = ['Completed', 'Completed with Excellence'];
+        if (
+            $originalStatusValue === 'Active'
+            && !$atem->is_extended
+            && in_array($statusValue, $plainCompletionStatuses, true)
+            && $closureDate !== null
+        ) {
+            $startBound = isset($data['start_date']) && $data['start_date'] !== null
+                ? Carbon::parse($data['start_date'])->toDateString()
+                : ($atem->start_date ? Carbon::parse($atem->start_date)->toDateString() : null);
+            $endBound = isset($data['end_date']) && $data['end_date'] !== null
+                ? Carbon::parse($data['end_date'])->toDateString()
+                : ($atem->end_date ? Carbon::parse($atem->end_date)->toDateString() : null);
+
+            if ($endBound !== null && $closureDate > $endBound) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This ATEM was completed after its end date (' . $endBound . '). Save it as "Completed with Extension" instead.',
+                ], 422);
+            }
+            if ($startBound !== null && $closureDate < $startBound) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The closure date cannot be earlier than the start date (' . $startBound . ').',
+                ], 422);
+            }
+        }
+
         $arciMembers = $atem->arci()->get();
         $incentivisedACount = $arciMembers->where('role', 'A')->where('is_incentivised', true)->count();
         $incentivisedRCount = $arciMembers->where('role', 'R')->where('is_incentivised', true)->count();
         $incentive = $this->calculator->calculate($level, $rule, $statusValue, $incentivisedACount, $incentivisedRCount);
 
         // The calculator computes a/r/total purely from level+rule+incentivised
-        // counts - it has no notion of Suspended/Force Terminated. A suspension
-        // is a pause, not a forfeiture: the computed a/r/total breakdown is
-        // preserved (matching suspend()) and only the payable final amount is
-        // zeroed below; a force-terminated card is permanently ineligible, so
-        // every amount is forced to zero regardless of the calculator.
+        // counts - it has no notion of Suspended/Force Terminated/Extended. A
+        // suspension is a pause, not a forfeiture: the computed a/r/total
+        // breakdown is preserved (matching suspend()) and only the payable final
+        // amount is zeroed below. Force Terminated is permanently ineligible;
+        // Extended and Completed with Extension needed more time and forfeit the
+        // incentive in full - for all three the entire a/r/total breakdown is
+        // forced to zero (not just final_incentive_amount) so the card never
+        // shows a pending incentive it can no longer earn.
         if ($statusValue === 'Suspended') {
             $incentive['claimable'] = false;
-        } elseif ($statusValue === 'Force Terminated') {
+        } elseif (in_array($statusValue, ['Force Terminated', 'Extended', 'Completed with Extension'], true)) {
             $incentive['a'] = 0.0;
             $incentive['r'] = 0.0;
             $incentive['total'] = 0.0;
