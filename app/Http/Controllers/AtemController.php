@@ -250,6 +250,15 @@ class AtemController extends Controller
     {
         $includeDeleted = $request->query('include_deleted') == 1;
 
+        // ?slim=1 - only the columns/relations odb's Staff Performance
+        // aggregation reads (getStaffPerformanceLive() in odb's api.php). The
+        // full response is several MB; this skips levelStructure,
+        // incentiveRule and pillar entirely and trims every relation to the
+        // columns actually used.
+        if ($request->query('slim') == 1) {
+            return $this->indexSlim($includeDeleted);
+        }
+
         $builder = $includeDeleted
             ? Atem::withTrashed()->with(['levelStructure', 'incentiveRule', 'status', 'arci', 'pillar', 'outlets', 'areaManagers'])
             : Atem::with(['levelStructure', 'incentiveRule', 'status', 'arci', 'pillar', 'outlets', 'areaManagers']);
@@ -280,6 +289,36 @@ class AtemController extends Controller
             'payout_status', 'payout_remark', 'payout_updated_by', 'payout_updated_at',
             'payout_closed_by', 'payout_closed_at',
         ]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $atems,
+        ]);
+    }
+
+    /**
+     * GET /api/atem?slim=1 - see index(). Foreign keys (id, atem_id,
+     * atem_status_id) must stay in every select list or the eager loads
+     * cannot match children back to their parent.
+     */
+    private function indexSlim(bool $includeDeleted): JsonResponse
+    {
+        $builder = $includeDeleted ? Atem::withTrashed() : Atem::query();
+
+        $atems = $builder
+            ->with([
+                'status:id,value',
+                'arci:id,atem_id,staff_id,staff_dept_id,role,is_incentivised',
+                'outlets:id,atem_id,outlet_id',
+                'areaManagers:id,atem_id,staff_id',
+            ])
+            ->orderByDesc('id')
+            ->get([
+                'id', 'issuer_staff_id', 'staff_dept_id', 'atem_type',
+                'atem_status_id', 'closure_date',
+                'a_incentive_amount', 'r_incentive_amount', 'final_incentive_amount',
+                'payout_status', 'deleted_at',
+            ]);
 
         return response()->json([
             'success' => true,
