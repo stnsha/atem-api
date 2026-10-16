@@ -6,6 +6,7 @@ use App\Http\Controllers\IidasMigrationController;
 use App\Http\Controllers\AtemArciController;
 use App\Http\Controllers\AtemAttachmentController;
 use App\Http\Controllers\AtemController;
+use App\Http\Controllers\AtemExportLogController;
 use App\Http\Controllers\AtemMessageController;
 use App\Http\Controllers\AtemNotificationController;
 use App\Http\Controllers\AtemProgressController;
@@ -59,6 +60,10 @@ Route::middleware('auth:api')->group(function () {
     Route::patch('/atem/{id}/okr-link', [AtemController::class, 'linkOkr'])->whereNumber('id');
     Route::patch('/atem/payout-status/bulk-lock',   [AtemController::class, 'bulkLockPayout']);
     Route::patch('/atem/payout-status/bulk-unlock', [AtemController::class, 'bulkUnlockPayout']);
+
+    // Staff Performance export audit log
+    Route::get('/atem/export-logs',  [AtemExportLogController::class, 'index']);
+    Route::post('/atem/export-logs', [AtemExportLogController::class, 'store']);
 
     // ATEM ARCI members
     Route::post('/atem/{id}/arci',                          [AtemArciController::class, 'store'])->whereNumber('id');
